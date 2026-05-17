@@ -2,24 +2,17 @@ import 'dart:math';
 import '../models/arrow_model.dart';
 import '../models/level_model.dart';
 
-/// Generates daily challenges using the date as a seed,
-/// so every user sees the same puzzle each day.
-///
-/// Uses the CORRECT full-path rule:
-///   An arrow can be removed only if its ENTIRE PATH to the grid
-///   edge is clear (no active arrow anywhere along that line).
 class DailyChallengeService {
   static LevelModel generateDailyChallenge(DateTime date) {
     final seed = date.year * 10000 + date.month * 100 + date.day;
     final random = Random(seed);
 
-    final arrowCount = 12 + random.nextInt(9); // 12–20 arrows
-    final gridSize = _calculateGridSize(arrowCount);
+    const int rows = 4;
+    const int cols = 4;
 
     return _generatePuzzle(
-      arrowCount: arrowCount,
-      gridRows: gridSize,
-      gridCols: gridSize,
+      gridRows: rows,
+      gridCols: cols,
       random: random,
       levelNumber: 0,
       type: LevelType.daily,
@@ -27,18 +20,7 @@ class DailyChallengeService {
     );
   }
 
-  static int _calculateGridSize(int arrowCount) {
-    if (arrowCount <= 9)  return 4;
-    if (arrowCount <= 16) return 5;
-    if (arrowCount <= 25) return 6;
-    return 7;
-  }
-
-  /// Builds a solvable puzzle using reverse construction:
-  /// Start from an empty grid and place arrows one by one, each time
-  /// ensuring the puzzle remains solvable.
   static LevelModel _generatePuzzle({
-    required int arrowCount,
     required int gridRows,
     required int gridCols,
     required Random random,
@@ -46,44 +28,50 @@ class DailyChallengeService {
     required LevelType type,
     required LevelDifficulty difficulty,
   }) {
-    // Only 4 cardinal directions (matching Easybrain style)
-    const directions = [
-      ArrowDirection.up,
-      ArrowDirection.down,
-      ArrowDirection.left,
-      ArrowDirection.right,
-    ];
-
     final List<ArrowModel> arrows = [];
-    final Set<String> occupied = {};
+    final Set<(int, int)> visited = {};
     int idCounter = 0;
 
-    for (int attempt = 0; attempt < arrowCount * 10 && arrows.length < arrowCount; attempt++) {
-      final row = random.nextInt(gridRows);
-      final col = random.nextInt(gridCols);
-      final posKey = '$row,$col';
-      if (occupied.contains(posKey)) continue;
-
-      // Pick a direction that either points to edge or to an existing arrow
-      final dir = _pickDirection(row, col, gridRows, gridCols, arrows, random, directions);
-
-      final arrow = ArrowModel(
-        id: 'dc_${idCounter++}',
-        row: row,
-        col: col,
-        direction: dir,
-      );
-
-      // Only add if the puzzle stays solvable
-      final testArrows = [...arrows, arrow];
-      if (_isSolvable(testArrows, gridRows, gridCols)) {
-        arrows.add(arrow);
-        occupied.add(posKey);
+    final List<(int, int)> allPoints = [];
+    for (int r = 0; r < gridRows; r++) {
+      for (int c = 0; c < gridCols; c++) {
+        allPoints.add((r, c));
       }
     }
+    allPoints.shuffle(random);
 
-    // Compute a valid removal order
-    final solution = _computeSolution(List<ArrowModel>.from(arrows), gridRows, gridCols);
+    for (final startPoint in allPoints) {
+      if (visited.contains(startPoint)) continue;
+
+      final List<GridPoint> path = [
+        GridPoint(startPoint.$1.toDouble(), startPoint.$2.toDouble())
+      ];
+      visited.add(startPoint);
+
+      int targetLength = 1 + random.nextInt(4);
+      while (path.length < targetLength) {
+        final last = path.last;
+        final neighbors = _getUnvisitedNeighbors(
+            (last.row.toInt(), last.col.toInt()), visited, gridRows, gridCols);
+        if (neighbors.isEmpty) break;
+
+        final next = neighbors[random.nextInt(neighbors.length)];
+        path.add(GridPoint(next.$1.toDouble(), next.$2.toDouble()));
+        visited.add(next);
+      }
+
+      final dir = ArrowDirection.values[random.nextInt(4)];
+
+      arrows.add(ArrowModel(
+        id: 'dc_${idCounter++}',
+        row: startPoint.$1,
+        col: startPoint.$2,
+        direction: dir,
+        pathPoints: path,
+      ));
+    }
+
+    final solution = arrows.map((a) => a.id).toList();
 
     return LevelModel(
       levelNumber: levelNumber,
@@ -96,105 +84,24 @@ class DailyChallengeService {
     );
   }
 
-  static ArrowDirection _pickDirection(
-    int row, int col, int gridRows, int gridCols,
-    List<ArrowModel> existingArrows, Random random,
-    List<ArrowDirection> directions,
-  ) {
-    final shuffled = List<ArrowDirection>.from(directions)..shuffle(random);
-
-    // Prefer directions pointing to an edge (easiest to remove initially)
-    for (final dir in shuffled) {
-      final offset = _offset(dir);
-      final nr = row + offset.$1;
-      final nc = col + offset.$2;
-      if (nr < 0 || nr >= gridRows || nc < 0 || nc >= gridCols) return dir;
-    }
-
-    // Then prefer directions whose full path is currently clear
-    for (final dir in shuffled) {
-      if (_canBeRemoved(
-          ArrowModel(id: '_test', row: row, col: col, direction: dir),
-          existingArrows, gridRows, gridCols)) {
-        return dir;
+  static List<(int, int)> _getUnvisitedNeighbors(
+      (int, int) p, Set<(int, int)> visited, int rows, int cols) {
+    final List<(int, int)> res = [];
+    final potentials = [
+      (p.$1 - 1, p.$2),
+      (p.$1 + 1, p.$2),
+      (p.$1, p.$2 - 1),
+      (p.$1, p.$2 + 1)
+    ];
+    for (final pt in potentials) {
+      if (pt.$1 >= 0 &&
+          pt.$1 < rows &&
+          pt.$2 >= 0 &&
+          pt.$2 < cols &&
+          !visited.contains(pt)) {
+        res.add(pt);
       }
     }
-
-    return shuffled.first;
-  }
-
-  // ── Full-path removal check (matches ArrowLogic exactly) ─────────────────
-
-  static bool _canBeRemoved(
-    ArrowModel arrow,
-    List<ArrowModel> allArrows,
-    int gridRows,
-    int gridCols,
-  ) {
-    final off = _offset(arrow.direction);
-    int r = arrow.row + off.$1;
-    int c = arrow.col + off.$2;
-
-    while (r >= 0 && r < gridRows && c >= 0 && c < gridCols) {
-      if (allArrows.any((a) => a.id != arrow.id && a.row == r && a.col == c)) {
-        return false;
-      }
-      r += off.$1;
-      c += off.$2;
-    }
-    return true;
-  }
-
-  static List<ArrowModel> _findRemovable(
-      List<ArrowModel> arrows, int gridRows, int gridCols) {
-    return arrows.where((a) => _canBeRemoved(a, arrows, gridRows, gridCols)).toList();
-  }
-
-  static bool _isSolvable(List<ArrowModel> arrows, int gridRows, int gridCols) {
-    return _dfs(List<ArrowModel>.from(arrows), gridRows, gridCols);
-  }
-
-  static bool _dfs(List<ArrowModel> arrows, int gridRows, int gridCols) {
-    if (arrows.isEmpty) return true;
-    final removable = _findRemovable(arrows, gridRows, gridCols);
-    if (removable.isEmpty) return false;
-    for (final a in removable) {
-      final next = arrows.where((x) => x.id != a.id).toList();
-      if (_dfs(next, gridRows, gridCols)) return true;
-    }
-    return false;
-  }
-
-  static List<String> _computeSolution(
-      List<ArrowModel> arrows, int gridRows, int gridCols) {
-    final solution = <String>[];
-    final remaining = List<ArrowModel>.from(arrows);
-
-    while (remaining.isNotEmpty) {
-      final removable = _findRemovable(remaining, gridRows, gridCols);
-      if (removable.isEmpty) {
-        // Fallback — add remaining in order (shouldn't happen if solvable)
-        solution.addAll(remaining.map((a) => a.id));
-        break;
-      }
-      final pick = removable.first;
-      solution.add(pick.id);
-      remaining.removeWhere((a) => a.id == pick.id);
-    }
-
-    return solution;
-  }
-
-  static (int, int) _offset(ArrowDirection d) {
-    switch (d) {
-      case ArrowDirection.up:        return (-1, 0);
-      case ArrowDirection.down:      return (1, 0);
-      case ArrowDirection.left:      return (0, -1);
-      case ArrowDirection.right:     return (0, 1);
-      case ArrowDirection.upLeft:    return (-1, -1);
-      case ArrowDirection.upRight:   return (-1, 1);
-      case ArrowDirection.downLeft:  return (1, -1);
-      case ArrowDirection.downRight: return (1, 1);
-    }
+    return res;
   }
 }

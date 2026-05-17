@@ -28,14 +28,22 @@ class GameBoard extends StatefulWidget {
 class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
   final Map<String, AnimationController> _removeControllers = {};
   final Map<String, double> _removeAnimations = {};
+  bool _tutorialDismissed = false;
 
   @override
   void didUpdateWidget(GameBoard oldWidget) {
     super.didUpdateWidget(oldWidget);
     for (final ArrowModel arrow in widget.arrows) {
-      if (arrow.state == ArrowState.removing &&
-          !_removeControllers.containsKey(arrow.id)) {
-        _startRemoveAnimation(arrow.id);
+      if (arrow.state == ArrowState.removing) {
+        if (!_tutorialDismissed) {
+          setState(() {
+            _tutorialDismissed = true;
+          });
+        }
+        
+        if (!_removeControllers.containsKey(arrow.id)) {
+          _startRemoveAnimation(arrow.id);
+        }
       }
     }
   }
@@ -77,7 +85,7 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
     return LayoutBuilder(builder: (context, constraints) {
       final double cellSizeW = constraints.maxWidth / widget.gridCols;
       final double cellSizeH = constraints.maxHeight / widget.gridRows;
-      final double cellSize = math.min(cellSizeW, cellSizeH).clamp(40.0, 80.0);
+      final double cellSize = math.min(cellSizeW, cellSizeH).clamp(40.0, 100.0);
 
       final double boardWidth = cellSize * widget.gridCols;
       final double boardHeight = cellSize * widget.gridRows;
@@ -107,8 +115,10 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
                 ),
               ),
 
-              if (widget.showTutorial && widget.tutorialMessage != null)
-                _buildTutorialOverlay(cellSize),
+              if (widget.showTutorial && widget.tutorialMessage != null && !_tutorialDismissed)
+                IgnorePointer(
+                  child: _buildTutorialOverlay(cellSize, boardWidth, boardHeight),
+                ),
             ],
           ),
         ),
@@ -116,14 +126,8 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
     });
   }
 
-  // ── PATH-BASED TAP DETECTION ────────────────────────────────────────
-  //
-  // Instead of cell-based matching, we measure the distance from the tap
-  // point to each arrow's actual path. The arrow with the closest path
-  // (within a hit threshold) is selected.
-
   void _handleTap(Offset tapPosition, double cellSize) {
-    final double hitThreshold = cellSize * 0.45; // generous tap area
+    final double hitThreshold = cellSize * 0.5; 
 
     ArrowModel? closestArrow;
     double closestDistance = double.infinity;
@@ -134,14 +138,18 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
         continue;
       }
 
-      // Get the arrow's path as canvas offsets
       final List<Offset> points =
           arrow.pathPoints.map((gp) => gp.toOffset(cellSize)).toList();
 
-      // Find minimum distance from tap to any segment of the path
       double minDist = double.infinity;
+
       for (int i = 0; i < points.length - 1; i++) {
         final double d = _distanceToSegment(tapPosition, points[i], points[i + 1]);
+        if (d < minDist) minDist = d;
+      }
+      
+      for (final p in points) {
+        final double d = (tapPosition - p).distance;
         if (d < minDist) minDist = d;
       }
 
@@ -152,48 +160,48 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
     }
 
     if (closestArrow != null) {
-      debugPrint(
-          'Tapped at $tapPosition → arrow ${closestArrow.id} (dist: ${closestDistance.toStringAsFixed(1)})');
       widget.onArrowTapped(closestArrow.id);
     }
   }
 
-  /// Perpendicular distance from point P to line segment AB.
   double _distanceToSegment(Offset p, Offset a, Offset b) {
     final double dx = b.dx - a.dx;
     final double dy = b.dy - a.dy;
     final double lengthSq = dx * dx + dy * dy;
-
     if (lengthSq == 0) return (p - a).distance;
-
-    // Project P onto AB, clamped to [0, 1]
     double t = ((p.dx - a.dx) * dx + (p.dy - a.dy) * dy) / lengthSq;
     t = t.clamp(0.0, 1.0);
-
     final Offset projection = Offset(a.dx + t * dx, a.dy + t * dy);
     return (p - projection).distance;
   }
 
-  Widget _buildTutorialOverlay(double cellSize) {
-    final List<ArrowModel> activeArrows = widget.arrows
-        .where((ArrowModel a) => a.state == ArrowState.active)
-        .toList();
+  Widget _buildTutorialOverlay(double cellSize, double boardWidth, double boardHeight) {
+    // For Level 1 (3x3), the middle arrow is exactly at column 1.
+    // We want the hand at the center dot (1, 1).
+    final double cx = 1.5 * cellSize;
+    final double cy = 1.5 * cellSize;
 
-    if (activeArrows.isEmpty) return const SizedBox.shrink();
+    const double iconSize = 38.0;
+    const double containerWidth = 200.0;
 
-    final ArrowModel targetArrow = activeArrows.first;
-    final double cx = targetArrow.col * cellSize + cellSize / 2;
-    final double cy = targetArrow.row * cellSize + cellSize / 2;
-
-    return Positioned(
-      left: cx - 60,
-      top: cy + cellSize * 0.55,
-      child: Column(
-        children: [
-          const Icon(Icons.touch_app_rounded,
-              color: Color(0xFF5F6470), size: 38),
-          const SizedBox(height: 4),
-          Container(
+    return Stack(
+      children: [
+        // Hand Icon centered exactly on (1,1)
+        Positioned(
+          left: cx - (iconSize / 2),
+          top: cy - (iconSize / 2),
+          child: const Icon(
+            Icons.touch_app_rounded,
+            color: Color(0xFF5F6470),
+            size: iconSize,
+          ),
+        ),
+        // Tutorial Message centered below the Icon
+        Positioned(
+          left: cx - (containerWidth / 2),
+          top: cy + (iconSize / 2) + 8,
+          width: containerWidth,
+          child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: const Color(0xFF2D8CEB),
@@ -201,6 +209,7 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
             ),
             child: Text(
               widget.tutorialMessage!,
+              textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 13,
@@ -208,8 +217,8 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

@@ -1,11 +1,17 @@
 import '../models/level_model.dart';
 import 'level_1.dart';
 import 'level_2.dart';
+import 'level_3.dart';
 
 class LevelData {
   LevelData._();
 
-  static List<LevelModel> get allLevels => [Level1.data, Level2.data];
+  static List<LevelModel> get allLevels => [
+        Level1.data,
+        Level2.data,
+        Level3.data,
+      ];
+
   static int get totalLevels => allLevels.length;
 
   static LevelModel? getLevel(int levelNumber) {
