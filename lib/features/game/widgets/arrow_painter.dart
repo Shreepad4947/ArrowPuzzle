@@ -3,16 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../data/models/arrow_model.dart';
 
-/// Paints the full game board:
-///  1. Dot grid — a small dot at the centre of EVERY cell (full matrix)
-///  2. Arrows   — one clean, single-cell directional arrow per ArrowModel
-///
-/// Visual style matches Easybrain's Arrow Puzzle:
-///  • Thick rounded line body
-///  • Bold filled triangle arrowhead
-///  • Slides out in its direction when removed
-///  • Yellow glow when hinted
-///  • Red tint when wrong tap
 class ArrowPainter extends CustomPainter {
   final List<ArrowModel> arrows;
   final int gridRows;
@@ -28,22 +18,16 @@ class ArrowPainter extends CustomPainter {
     this.removeAnimations = const {},
   });
 
-  // ── Paint entry ─────────────────────────────────────────────────────────
-
   @override
   void paint(Canvas canvas, Size size) {
     _drawFullGridDots(canvas);
-    for (final arrow in arrows) {
-      if (arrow.state == ArrowState.removed) continue;
+    for (final ArrowModel arrow in arrows) {
       _paintArrow(canvas, arrow);
     }
   }
 
-  // ── Dot grid ────────────────────────────────────────────────────────────
-
-  /// Draws a small dot at the centre of every grid cell.
   void _drawFullGridDots(Canvas canvas) {
-    final paint = Paint()
+    final Paint paint = Paint()
       ..color = AppColors.primaryLight.withOpacity(0.35)
       ..style = PaintingStyle.fill;
 
@@ -52,7 +36,10 @@ class ArrowPainter extends CustomPainter {
     for (int row = 0; row < gridRows; row++) {
       for (int col = 0; col < gridCols; col++) {
         canvas.drawCircle(
-          Offset(col * cellSize + cellSize / 2, row * cellSize + cellSize / 2),
+          Offset(
+            col * cellSize + cellSize / 2,
+            row * cellSize + cellSize / 2,
+          ),
           dotRadius,
           paint,
         );
@@ -60,24 +47,41 @@ class ArrowPainter extends CustomPainter {
     }
   }
 
-  // ── Arrow painting ───────────────────────────────────────────────────────
-
   void _paintArrow(Canvas canvas, ArrowModel arrow) {
-    // Animation offset for slide-out
+
+    // ✅ FIX 1: Skip removed arrows immediately - no ghost rendering
+    if (arrow.state == ArrowState.removed) return;
+
     double opacity = 1.0;
     Offset slideOffset = Offset.zero;
 
     if (arrow.state == ArrowState.removing) {
-      final progress = removeAnimations[arrow.id] ?? 0.0;
+      final double progress = removeAnimations[arrow.id] ?? 0.0;
+
+      // ✅ FIX 2: If progress is 0.0 and state is removing,
+      // it means animation hasn't started yet OR removeAnimations
+      // map was lost on rebuild.
+      // We check: if state is removing but no animation key exists,
+      // treat as fully removed (invisible) to prevent ghost flash.
+      if (!removeAnimations.containsKey(arrow.id)) {
+        // ✅ FIX 3: Arrow is mid-removal but animation map is gone
+        // (happens on rebuild). Don't draw it at all.
+        return;
+      }
+
       opacity = (1.0 - progress).clamp(0.0, 1.0);
-      final dir = _directionVector(arrow.direction);
+
+      // ✅ FIX 4: If fully transparent, skip drawing entirely
+      if (opacity <= 0.01) return;
+
+      final Offset dir = _directionVector(arrow.direction);
       slideOffset = Offset(
         dir.dx * cellSize * 2.0 * progress,
         dir.dy * cellSize * 2.0 * progress,
       );
     }
 
-    // Pick colour
+    // Pick colour based on state
     final Color baseColor;
     switch (arrow.state) {
       case ArrowState.active:
@@ -93,15 +97,14 @@ class ArrowPainter extends CustomPainter {
         baseColor = AppColors.arrowDefault;
         break;
       case ArrowState.removed:
+        // Already handled above, but needed for exhaustive switch
         return;
     }
 
-    final color = baseColor.withOpacity(opacity);
+    final Color color = baseColor.withOpacity(opacity);
 
-    // Centre of the cell in canvas coordinates
-    final cx = arrow.col * cellSize + cellSize / 2 + slideOffset.dx;
-    final cy = arrow.row * cellSize + cellSize / 2 + slideOffset.dy;
-    final center = Offset(cx, cy);
+    final double cx = arrow.col * cellSize + cellSize / 2 + slideOffset.dx;
+    final double cy = arrow.row * cellSize + cellSize / 2 + slideOffset.dy;
 
     canvas.save();
     canvas.translate(cx, cy);
@@ -112,53 +115,44 @@ class ArrowPainter extends CustomPainter {
 
     _drawSingleCellArrow(canvas, arrow.direction, color, cellSize);
     canvas.restore();
-
-    // Debug: draw cell outline (remove in production)
-    // _drawCellDebug(canvas, arrow, cellSize);
   }
 
-  /// Draws a clean single-cell arrow centred at (0,0) in local coordinates.
-  /// Matches Easybrain style: thick body + bold filled arrowhead.
   void _drawSingleCellArrow(
     Canvas canvas,
     ArrowDirection direction,
     Color color,
     double cellSize,
   ) {
-    final angle = _directionAngle(direction);
-    final halfBody = cellSize * 0.28; // half-length of arrow body
-    const double headLen = 0.0; // arrowhead is at tip, no extra extension
+    final double angle = _directionAngle(direction);
+    final double halfBody = cellSize * 0.28;
 
-    // In local space, arrow goes from -halfBody to +halfBody along X axis,
-    // then we rotate to the correct direction.
     canvas.save();
     canvas.rotate(angle);
 
-    final tailX = -halfBody;
-    final tipX  =  halfBody;
+    final double tailX = -halfBody;
+    final double tipX = halfBody;
 
-    // ── Body line ────────────────────────────────────────────────
-    final bodyPaint = Paint()
+    // Body line
+    final Paint bodyPaint = Paint()
       ..color = color
       ..strokeWidth = cellSize * 0.13
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    // Body stops slightly before the tip so the head looks clean
-    final bodyEndX = tipX - cellSize * 0.12;
+    final double bodyEndX = tipX - cellSize * 0.12;
     canvas.drawLine(Offset(tailX, 0), Offset(bodyEndX, 0), bodyPaint);
 
-    // ── Arrowhead (filled triangle) ──────────────────────────────
-    final headBaseX = tipX - cellSize * 0.22;
-    final headHalfW = cellSize * 0.14;
+    // Arrowhead (filled triangle)
+    final double headBaseX = tipX - cellSize * 0.22;
+    final double headHalfW = cellSize * 0.14;
 
-    final headPath = Path()
-      ..moveTo(tipX, 0)                         // tip
-      ..lineTo(headBaseX,  headHalfW)           // bottom-left
-      ..lineTo(headBaseX, -headHalfW)           // top-left
+    final Path headPath = Path()
+      ..moveTo(tipX, 0)
+      ..lineTo(headBaseX, headHalfW)
+      ..lineTo(headBaseX, -headHalfW)
       ..close();
 
-    final headPaint = Paint()
+    final Paint headPaint = Paint()
       ..color = color
       ..style = PaintingStyle.fill;
 
@@ -166,20 +160,14 @@ class ArrowPainter extends CustomPainter {
     canvas.restore();
   }
 
-  // ── Glow effect for hint ────────────────────────────────────────────────
-
   void _drawGlow(Canvas canvas, Color color, double cellSize) {
-    final glowPaint = Paint()
+    final Paint glowPaint = Paint()
       ..color = color.withOpacity(0.22)
       ..maskFilter = MaskFilter.blur(BlurStyle.normal, cellSize * 0.18);
 
     canvas.drawCircle(Offset.zero, cellSize * 0.38, glowPaint);
   }
 
-  // ── Direction helpers ───────────────────────────────────────────────────
-
-  /// Rotation angle so the arrow points in the correct direction.
-  /// Base orientation is RIGHT (0 radians).
   double _directionAngle(ArrowDirection d) {
     switch (d) {
       case ArrowDirection.right:     return 0;
@@ -193,7 +181,6 @@ class ArrowPainter extends CustomPainter {
     }
   }
 
-  /// Unit direction vector for slide-out animation.
   Offset _directionVector(ArrowDirection d) {
     switch (d) {
       case ArrowDirection.up:        return const Offset(0, -1);
@@ -208,5 +195,10 @@ class ArrowPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant ArrowPainter oldDelegate) => true;
+  bool shouldRepaint(covariant ArrowPainter oldDelegate) {
+    // ✅ FIX 5: More precise repaint check
+    return oldDelegate.arrows != arrows ||
+        oldDelegate.removeAnimations != removeAnimations ||
+        oldDelegate.cellSize != cellSize;
+  }
 }

@@ -20,6 +20,11 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen> {
+  bool _isDialogShowing = false;
+
+  // ✅ FIX 1: Track navigation separately from dialog
+  bool _isNavigating = false;
+
   @override
   Widget build(BuildContext context) {
     return Consumer<GameController>(
@@ -32,18 +37,24 @@ class _GameScreenState extends State<GameScreen> {
           );
         }
 
-        // Check for level complete
+        // ✅ FIX 2: Check AFTER animation completes, not during
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (gameState.isCompleted) {
+          if (!mounted) return;
+
+          // ✅ FIX 3: Only navigate when NOT animating
+          // This prevents navigation during the remove animation
+          if (gameState.isCompleted && !controller.isAnimating) {
             _showLevelComplete(context);
-          } else if (gameState.isFailed) {
+          } else if (gameState.isFailed && !controller.isAnimating) {
             _showOutOfLives(context);
           }
         });
 
         final levelTitle = widget.isDailyChallenge
             ? _getDailyTitle()
-            : '${gameState.level.levelNumber > 0 ? "Level ${gameState.level.levelNumber}" : ""}';
+            : '${gameState.level.levelNumber > 0 
+                ? "Level ${gameState.level.levelNumber}" 
+                : ""}';
 
         return Scaffold(
           backgroundColor: AppColors.backgroundGame,
@@ -60,6 +71,7 @@ class _GameScreenState extends State<GameScreen> {
                   onBack: () => Navigator.of(context).pop(),
                   onSettings: () => _showOptions(context),
                 ),
+
                 // Game Board
                 Expanded(
                   child: Center(
@@ -78,6 +90,7 @@ class _GameScreenState extends State<GameScreen> {
                     ),
                   ),
                 ),
+
                 // Bottom Bar
                 GameBottomBar(
                   hintsRemaining: gameState.hintsRemaining,
@@ -101,29 +114,38 @@ class _GameScreenState extends State<GameScreen> {
     return '${months[now.month]} ${now.day}';
   }
 
-  bool _isDialogShowing = false;
-
   void _showLevelComplete(BuildContext context) {
-    if (_isDialogShowing) return;
-    _isDialogShowing = true;
+    // ✅ FIX 4: Use _isNavigating flag to prevent double navigation
+    if (_isDialogShowing || _isNavigating) return;
+    _isNavigating = true;
 
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (!mounted) return;
+    // ✅ FIX 5: Reduced delay - animation already finished before we get here
+    // because we wait for isAnimating = false before calling this
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (!mounted) {
+        _isNavigating = false;
+        return;
+      }
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => const LevelCompleteScreen(),
         ),
-      );
-      _isDialogShowing = false;
+      ).then((_) {
+        _isNavigating = false;
+      });
     });
   }
 
   void _showOutOfLives(BuildContext context) {
-    if (_isDialogShowing) return;
+    if (_isDialogShowing || _isNavigating) return;
     _isDialogShowing = true;
 
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (!mounted) return;
+    // ✅ FIX 6: Reduced delay here too
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (!mounted) {
+        _isDialogShowing = false;
+        return;
+      }
       showDialog(
         context: context,
         barrierDismissible: false,
