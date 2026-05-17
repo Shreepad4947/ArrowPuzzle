@@ -3,11 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../data/models/arrow_model.dart';
 import 'arrow_painter.dart';
 
-/// The interactive game board widget.
-/// Renders a grid of arrows via [ArrowPainter] and handles tap detection.
-///
-/// Tap detection is cell-based: the tapped cell (row, col) is computed
-/// from the tap position, then matched against arrows at that cell.
 class GameBoard extends StatefulWidget {
   final List<ArrowModel> arrows;
   final int gridRows;
@@ -37,7 +32,7 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(GameBoard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    for (final arrow in widget.arrows) {
+    for (final ArrowModel arrow in widget.arrows) {
       if (arrow.state == ArrowState.removing &&
           !_removeControllers.containsKey(arrow.id)) {
         _startRemoveAnimation(arrow.id);
@@ -46,42 +41,46 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
   }
 
   void _startRemoveAnimation(String arrowId) {
-    final controller = AnimationController(
+    final AnimationController controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 380),
+      duration: const Duration(milliseconds: 550),
     );
+
     controller.addListener(() {
-      if (mounted) setState(() => _removeAnimations[arrowId] = controller.value);
+      if (mounted) {
+        setState(() => _removeAnimations[arrowId] = controller.value);
+      }
     });
-    controller.addStatusListener((status) {
+
+    controller.addStatusListener((AnimationStatus status) {
       if (status == AnimationStatus.completed) {
         _removeControllers.remove(arrowId);
         _removeAnimations.remove(arrowId);
         controller.dispose();
       }
     });
+
     _removeControllers[arrowId] = controller;
     controller.forward();
   }
 
   @override
   void dispose() {
-    for (final c in _removeControllers.values) c.dispose();
+    for (final c in _removeControllers.values) {
+      c.dispose();
+    }
     super.dispose();
   }
-
-  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
-      // Compute cell size — fit the board inside the available space
-      final cellSizeW = constraints.maxWidth / widget.gridCols;
-      final cellSizeH = constraints.maxHeight / widget.gridRows;
-      final cellSize = math.min(cellSizeW, cellSizeH).clamp(40.0, 80.0);
+      final double cellSizeW = constraints.maxWidth / widget.gridCols;
+      final double cellSizeH = constraints.maxHeight / widget.gridRows;
+      final double cellSize = math.min(cellSizeW, cellSizeH).clamp(40.0, 80.0);
 
-      final boardWidth = cellSize * widget.gridCols;
-      final boardHeight = cellSize * widget.gridRows;
+      final double boardWidth = cellSize * widget.gridCols;
+      final double boardHeight = cellSize * widget.gridRows;
 
       return Center(
         child: SizedBox(
@@ -90,11 +89,10 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
           child: Stack(
             clipBehavior: Clip.none,
             children: [
-              // ── Board (dots + arrows) ──────────────────────────────────
               Positioned.fill(
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTapDown: (details) =>
+                  onTapDown: (TapDownDetails details) =>
                       _handleTap(details.localPosition, cellSize),
                   child: CustomPaint(
                     size: Size(boardWidth, boardHeight),
@@ -109,7 +107,6 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
                 ),
               ),
 
-              // ── Tutorial overlay ───────────────────────────────────────
               if (widget.showTutorial && widget.tutorialMessage != null)
                 _buildTutorialOverlay(cellSize),
             ],
@@ -119,50 +116,82 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
     });
   }
 
-  // ── Tap handling ──────────────────────────────────────────────────────────
+  // ── PATH-BASED TAP DETECTION ────────────────────────────────────────
+  //
+  // Instead of cell-based matching, we measure the distance from the tap
+  // point to each arrow's actual path. The arrow with the closest path
+  // (within a hit threshold) is selected.
 
-  /// Convert tap pixel position → grid cell → find arrow in that cell.
   void _handleTap(Offset tapPosition, double cellSize) {
-    // Which cell was tapped?
-    final col = (tapPosition.dx / cellSize).floor();
-    final row = (tapPosition.dy / cellSize).floor();
+    final double hitThreshold = cellSize * 0.45; // generous tap area
 
-    // Bounds check
-    if (row < 0 || row >= widget.gridRows || col < 0 || col >= widget.gridCols) {
-      return;
+    ArrowModel? closestArrow;
+    double closestDistance = double.infinity;
+
+    for (final ArrowModel arrow in widget.arrows) {
+      if (arrow.state != ArrowState.active &&
+          arrow.state != ArrowState.highlighted) {
+        continue;
+      }
+
+      // Get the arrow's path as canvas offsets
+      final List<Offset> points =
+          arrow.pathPoints.map((gp) => gp.toOffset(cellSize)).toList();
+
+      // Find minimum distance from tap to any segment of the path
+      double minDist = double.infinity;
+      for (int i = 0; i < points.length - 1; i++) {
+        final double d = _distanceToSegment(tapPosition, points[i], points[i + 1]);
+        if (d < minDist) minDist = d;
+      }
+
+      if (minDist < closestDistance && minDist <= hitThreshold) {
+        closestDistance = minDist;
+        closestArrow = arrow;
+      }
     }
 
-    // Find an active arrow in that cell
-    final arrow = widget.arrows.where((a) {
-      return a.row == row &&
-          a.col == col &&
-          (a.state == ArrowState.active || a.state == ArrowState.highlighted);
-    }).firstOrNull;
-
-    if (arrow != null) {
-      debugPrint('Tapped cell ($row,$col) → arrow ${arrow.id}');
-      widget.onArrowTapped(arrow.id);
+    if (closestArrow != null) {
+      debugPrint(
+          'Tapped at $tapPosition → arrow ${closestArrow.id} (dist: ${closestDistance.toStringAsFixed(1)})');
+      widget.onArrowTapped(closestArrow.id);
     }
   }
 
-  // ── Tutorial overlay ──────────────────────────────────────────────────────
+  /// Perpendicular distance from point P to line segment AB.
+  double _distanceToSegment(Offset p, Offset a, Offset b) {
+    final double dx = b.dx - a.dx;
+    final double dy = b.dy - a.dy;
+    final double lengthSq = dx * dx + dy * dy;
+
+    if (lengthSq == 0) return (p - a).distance;
+
+    // Project P onto AB, clamped to [0, 1]
+    double t = ((p.dx - a.dx) * dx + (p.dy - a.dy) * dy) / lengthSq;
+    t = t.clamp(0.0, 1.0);
+
+    final Offset projection = Offset(a.dx + t * dx, a.dy + t * dy);
+    return (p - projection).distance;
+  }
 
   Widget _buildTutorialOverlay(double cellSize) {
-    final activeArrows =
-        widget.arrows.where((a) => a.state == ArrowState.active).toList();
+    final List<ArrowModel> activeArrows = widget.arrows
+        .where((ArrowModel a) => a.state == ArrowState.active)
+        .toList();
+
     if (activeArrows.isEmpty) return const SizedBox.shrink();
 
-    // Point at the first active arrow
-    final targetArrow = activeArrows.first;
-    final cx = targetArrow.col * cellSize + cellSize / 2;
-    final cy = targetArrow.row * cellSize + cellSize / 2;
+    final ArrowModel targetArrow = activeArrows.first;
+    final double cx = targetArrow.col * cellSize + cellSize / 2;
+    final double cy = targetArrow.row * cellSize + cellSize / 2;
 
     return Positioned(
       left: cx - 60,
       top: cy + cellSize * 0.55,
       child: Column(
         children: [
-          const Icon(Icons.touch_app_rounded, color: Color(0xFF5F6470), size: 38),
+          const Icon(Icons.touch_app_rounded,
+              color: Color(0xFF5F6470), size: 38),
           const SizedBox(height: 4),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),

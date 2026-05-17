@@ -3,6 +3,11 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../data/models/arrow_model.dart';
 
+/// Paints Easybrain-style arrows:
+///  • Tails and tips land EXACTLY on matrix grid dots
+///  • Continuous polyline body with sharp 90° corners
+///  • Thin premium stroke
+///  • Travels along its own path on removal
 class ArrowPainter extends CustomPainter {
   final List<ArrowModel> arrows;
   final int gridRows;
@@ -18,20 +23,34 @@ class ArrowPainter extends CustomPainter {
     this.removeAnimations = const {},
   });
 
+  // ── PREMIUM STYLE CONSTANTS ──────────────────────────────────────────
+  static const double _dotRadius = 2.0;          // small grid dots
+  static const double _strokeWidthRatio = 0.065; // thin stroke
+  static const double _headLengthRatio = 0.22;
+  static const double _headWidthRatio = 0.15;
+
+  // NOTE: NO _pathPadding — tails and tips land exactly on grid dots ✓
+
   @override
   void paint(Canvas canvas, Size size) {
     _drawFullGridDots(canvas);
+
     for (final ArrowModel arrow in arrows) {
+      if (arrow.state == ArrowState.removed) continue;
+
+      if (arrow.state == ArrowState.removing &&
+          !removeAnimations.containsKey(arrow.id)) {
+        continue;
+      }
+
       _paintArrow(canvas, arrow);
     }
   }
 
   void _drawFullGridDots(Canvas canvas) {
     final Paint paint = Paint()
-      ..color = AppColors.primaryLight.withOpacity(0.35)
+      ..color = AppColors.primaryLight.withOpacity(0.28)
       ..style = PaintingStyle.fill;
-
-    const double dotRadius = 2.5;
 
     for (int row = 0; row < gridRows; row++) {
       for (int col = 0; col < gridCols; col++) {
@@ -40,7 +59,7 @@ class ArrowPainter extends CustomPainter {
             col * cellSize + cellSize / 2,
             row * cellSize + cellSize / 2,
           ),
-          dotRadius,
+          _dotRadius,
           paint,
         );
       }
@@ -48,40 +67,24 @@ class ArrowPainter extends CustomPainter {
   }
 
   void _paintArrow(Canvas canvas, ArrowModel arrow) {
+    // ✅ Use raw path points — NO shrinking. Tails/tips on grid dots.
+    final List<Offset> originalPoints =
+        arrow.pathPoints.map((gp) => gp.toOffset(cellSize)).toList();
 
-    // ✅ FIX 1: Skip removed arrows immediately - no ghost rendering
-    if (arrow.state == ArrowState.removed) return;
+    if (originalPoints.length < 2) return;
 
     double opacity = 1.0;
-    Offset slideOffset = Offset.zero;
+    double travelDistance = 0.0;
 
     if (arrow.state == ArrowState.removing) {
       final double progress = removeAnimations[arrow.id] ?? 0.0;
+      opacity = (1.0 - progress * 0.3).clamp(0.0, 1.0);
 
-      // ✅ FIX 2: If progress is 0.0 and state is removing,
-      // it means animation hasn't started yet OR removeAnimations
-      // map was lost on rebuild.
-      // We check: if state is removing but no animation key exists,
-      // treat as fully removed (invisible) to prevent ghost flash.
-      if (!removeAnimations.containsKey(arrow.id)) {
-        // ✅ FIX 3: Arrow is mid-removal but animation map is gone
-        // (happens on rebuild). Don't draw it at all.
-        return;
-      }
-
-      opacity = (1.0 - progress).clamp(0.0, 1.0);
-
-      // ✅ FIX 4: If fully transparent, skip drawing entirely
-      if (opacity <= 0.01) return;
-
-      final Offset dir = _directionVector(arrow.direction);
-      slideOffset = Offset(
-        dir.dx * cellSize * 2.0 * progress,
-        dir.dy * cellSize * 2.0 * progress,
-      );
+      final double pathLength = _computePathLength(originalPoints);
+      final double extraExit = cellSize * 1.5;
+      travelDistance = (pathLength + extraExit) * progress;
     }
 
-    // Pick colour based on state
     final Color baseColor;
     switch (arrow.state) {
       case ArrowState.active:
@@ -97,59 +100,116 @@ class ArrowPainter extends CustomPainter {
         baseColor = AppColors.arrowDefault;
         break;
       case ArrowState.removed:
-        // Already handled above, but needed for exhaustive switch
         return;
     }
 
     final Color color = baseColor.withOpacity(opacity);
 
-    final double cx = arrow.col * cellSize + cellSize / 2 + slideOffset.dx;
-    final double cy = arrow.row * cellSize + cellSize / 2 + slideOffset.dy;
-
     canvas.save();
-    canvas.translate(cx, cy);
 
     if (arrow.state == ArrowState.highlighted) {
-      _drawGlow(canvas, color, cellSize);
+      _drawContinuousGlow(canvas, originalPoints, color);
     }
 
-    _drawSingleCellArrow(canvas, arrow.direction, color, cellSize);
+    if (arrow.state == ArrowState.removing) {
+      _drawAnimatedArrow(canvas, arrow, originalPoints, travelDistance, color);
+    } else {
+      _drawStaticArrow(canvas, originalPoints, color);
+    }
+
     canvas.restore();
   }
 
-  void _drawSingleCellArrow(
+  void _drawStaticArrow(Canvas canvas, List<Offset> points, Color color) {
+    _drawContinuousPath(canvas, points, color, withArrowHead: true);
+  }
+
+  void _drawAnimatedArrow(
     Canvas canvas,
-    ArrowDirection direction,
+    ArrowModel arrow,
+    List<Offset> originalPoints,
+    double travelDistance,
     Color color,
-    double cellSize,
   ) {
-    final double angle = _directionAngle(direction);
-    final double halfBody = cellSize * 0.28;
+    final List<Offset> extendedPoints = List<Offset>.from(originalPoints);
+    final Offset dir = arrow.directionOffset;
+    final Offset lastPoint = extendedPoints.last;
+    extendedPoints.add(lastPoint + Offset(dir.dx, dir.dy) * cellSize * 3);
 
-    canvas.save();
-    canvas.rotate(angle);
+    final double totalOriginalLength = _computePathLength(originalPoints);
 
-    final double tailX = -halfBody;
-    final double tipX = halfBody;
+    final List<Offset> visiblePath = _extractSubPath(
+      extendedPoints,
+      travelDistance,
+      totalOriginalLength + travelDistance,
+    );
 
-    // Body line
+    if (visiblePath.length < 2) return;
+
+    _drawContinuousPath(canvas, visiblePath, color, withArrowHead: true);
+  }
+
+  void _drawContinuousPath(
+    Canvas canvas,
+    List<Offset> points,
+    Color color, {
+    bool withArrowHead = false,
+  }) {
+    if (points.length < 2) return;
+
+    final double strokeWidth = cellSize * _strokeWidthRatio;
     final Paint bodyPaint = Paint()
       ..color = color
-      ..strokeWidth = cellSize * 0.13
+      ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.miter;
 
-    final double bodyEndX = tipX - cellSize * 0.12;
-    canvas.drawLine(Offset(tailX, 0), Offset(bodyEndX, 0), bodyPaint);
+    final List<Offset> drawPoints = List<Offset>.from(points);
 
-    // Arrowhead (filled triangle)
-    final double headBaseX = tipX - cellSize * 0.22;
-    final double headHalfW = cellSize * 0.14;
+    if (withArrowHead) {
+      final Offset last = drawPoints.last;
+      final Offset prev = drawPoints[drawPoints.length - 2];
+      final Offset segDir = last - prev;
+      final double segLen = segDir.distance;
+
+      if (segLen > 0) {
+        final double shortenBy = cellSize * _headLengthRatio * 0.55;
+        drawPoints[drawPoints.length - 1] =
+            last - (segDir / segLen) * math.min(shortenBy, segLen * 0.6);
+      }
+    }
+
+    final Path path = Path()..moveTo(drawPoints.first.dx, drawPoints.first.dy);
+    for (int i = 1; i < drawPoints.length; i++) {
+      path.lineTo(drawPoints[i].dx, drawPoints[i].dy);
+    }
+    canvas.drawPath(path, bodyPaint);
+
+    if (withArrowHead) {
+      _drawArrowHead(canvas, points[points.length - 2], points.last, color);
+    }
+  }
+
+  void _drawArrowHead(Canvas canvas, Offset prev, Offset tip, Color color) {
+    final Offset dir = tip - prev;
+    final double len = dir.distance;
+    if (len == 0) return;
+
+    final Offset unitDir = dir / len;
+    final Offset unitPerp = Offset(-unitDir.dy, unitDir.dx);
+
+    final double headLength = cellSize * _headLengthRatio;
+    final double headHalfWidth = cellSize * _headWidthRatio;
+
+    final Offset baseLeft = tip - unitDir * headLength + unitPerp * headHalfWidth;
+    final Offset baseRight =
+        tip - unitDir * headLength - unitPerp * headHalfWidth;
 
     final Path headPath = Path()
-      ..moveTo(tipX, 0)
-      ..lineTo(headBaseX, headHalfW)
-      ..lineTo(headBaseX, -headHalfW)
+      ..moveTo(tip.dx, tip.dy)
+      ..lineTo(baseLeft.dx, baseLeft.dy)
+      ..lineTo(baseRight.dx, baseRight.dy)
       ..close();
 
     final Paint headPaint = Paint()
@@ -157,46 +217,84 @@ class ArrowPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
 
     canvas.drawPath(headPath, headPaint);
-    canvas.restore();
   }
 
-  void _drawGlow(Canvas canvas, Color color, double cellSize) {
+  void _drawContinuousGlow(Canvas canvas, List<Offset> points, Color color) {
     final Paint glowPaint = Paint()
-      ..color = color.withOpacity(0.22)
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, cellSize * 0.18);
+      ..color = color.withOpacity(0.18)
+      ..strokeWidth = cellSize * 0.22
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, cellSize * 0.12);
 
-    canvas.drawCircle(Offset.zero, cellSize * 0.38, glowPaint);
+    final Path glowPath = Path()..moveTo(points.first.dx, points.first.dy);
+    for (int i = 1; i < points.length; i++) {
+      glowPath.lineTo(points[i].dx, points[i].dy);
+    }
+    canvas.drawPath(glowPath, glowPaint);
   }
 
-  double _directionAngle(ArrowDirection d) {
-    switch (d) {
-      case ArrowDirection.right:     return 0;
-      case ArrowDirection.down:      return math.pi / 2;
-      case ArrowDirection.left:      return math.pi;
-      case ArrowDirection.up:        return -math.pi / 2;
-      case ArrowDirection.upRight:   return -math.pi / 4;
-      case ArrowDirection.downRight: return math.pi / 4;
-      case ArrowDirection.downLeft:  return 3 * math.pi / 4;
-      case ArrowDirection.upLeft:    return -3 * math.pi / 4;
+  double _computePathLength(List<Offset> points) {
+    double total = 0;
+    for (int i = 1; i < points.length; i++) {
+      total += (points[i] - points[i - 1]).distance;
     }
+    return total;
   }
 
-  Offset _directionVector(ArrowDirection d) {
-    switch (d) {
-      case ArrowDirection.up:        return const Offset(0, -1);
-      case ArrowDirection.down:      return const Offset(0, 1);
-      case ArrowDirection.left:      return const Offset(-1, 0);
-      case ArrowDirection.right:     return const Offset(1, 0);
-      case ArrowDirection.upLeft:    return const Offset(-0.707, -0.707);
-      case ArrowDirection.upRight:   return const Offset(0.707, -0.707);
-      case ArrowDirection.downLeft:  return const Offset(-0.707, 0.707);
-      case ArrowDirection.downRight: return const Offset(0.707, 0.707);
+  Offset? _pointAtDistance(List<Offset> points, double distance) {
+    if (distance < 0) return points.first;
+    double accum = 0;
+    for (int i = 1; i < points.length; i++) {
+      final double segLen = (points[i] - points[i - 1]).distance;
+      if (accum + segLen >= distance) {
+        final double t = (distance - accum) / segLen;
+        return Offset.lerp(points[i - 1], points[i], t);
+      }
+      accum += segLen;
     }
+    return points.last;
+  }
+
+  List<Offset> _extractSubPath(
+      List<Offset> points, double startDist, double endDist) {
+    if (startDist >= endDist) return [];
+
+    final List<Offset> result = [];
+    double accum = 0;
+    bool started = false;
+
+    final Offset? startPoint = _pointAtDistance(points, startDist);
+    if (startPoint == null) return [];
+    result.add(startPoint);
+
+    for (int i = 1; i < points.length; i++) {
+      final double segLen = (points[i] - points[i - 1]).distance;
+      final double segEnd = accum + segLen;
+
+      if (!started && segEnd > startDist) {
+        started = true;
+      }
+
+      if (started) {
+        if (segEnd >= endDist) {
+          final Offset? endPoint = _pointAtDistance(points, endDist);
+          if (endPoint != null) result.add(endPoint);
+          break;
+        } else if (segEnd > startDist) {
+          result.add(points[i]);
+        }
+      }
+
+      accum += segLen;
+    }
+
+    return result;
   }
 
   @override
   bool shouldRepaint(covariant ArrowPainter oldDelegate) {
-    // ✅ FIX 5: More precise repaint check
     return oldDelegate.arrows != arrows ||
         oldDelegate.removeAnimations != removeAnimations ||
         oldDelegate.cellSize != cellSize;

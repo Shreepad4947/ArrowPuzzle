@@ -1,6 +1,7 @@
 import 'arrow_model.dart';
 
 enum LevelDifficulty { easy, normal, hard, expert }
+
 enum LevelType { tutorial, regular, daily }
 
 class LevelModel {
@@ -31,20 +32,30 @@ class LevelModel {
 
   String get difficultyLabel {
     switch (difficulty) {
-      case LevelDifficulty.easy:   return 'Easy';
-      case LevelDifficulty.normal: return 'Normal';
-      case LevelDifficulty.hard:   return 'Hard';
-      case LevelDifficulty.expert: return 'Expert';
+      case LevelDifficulty.easy:
+        return 'Easy';
+      case LevelDifficulty.normal:
+        return 'Normal';
+      case LevelDifficulty.hard:
+        return 'Hard';
+      case LevelDifficulty.expert:
+        return 'Expert';
     }
   }
 
   LevelModel freshCopy() {
     return LevelModel(
-      levelNumber: levelNumber, type: type, difficulty: difficulty,
-      gridRows: gridRows, gridCols: gridCols,
-      arrows: arrows.map((a) => a.copyWith(state: ArrowState.active)).toList(),
+      levelNumber: levelNumber,
+      type: type,
+      difficulty: difficulty,
+      gridRows: gridRows,
+      gridCols: gridCols,
+      arrows: arrows
+          .map((ArrowModel a) => a.copyWith(state: ArrowState.active))
+          .toList(),
       solutionOrder: List<String>.from(solutionOrder),
-      showTutorial: showTutorial, tutorialMessage: tutorialMessage,
+      showTutorial: showTutorial,
+      tutorialMessage: tutorialMessage,
     );
   }
 }
