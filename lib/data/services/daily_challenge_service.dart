@@ -2,16 +2,15 @@ import 'dart:math';
 import '../models/arrow_model.dart';
 import '../models/level_model.dart';
 
-/// Generates daily challenges using date as seed
+/// Generates daily challenges using the date as a seed,
+/// so all users see the same puzzle each day.
 class DailyChallengeService {
-  /// Generate a daily challenge for the given date
-  /// Uses the date as a seed to ensure the same puzzle for all users
+  /// Generate a daily challenge for the given date.
   static LevelModel generateDailyChallenge(DateTime date) {
     final seed = date.year * 10000 + date.month * 100 + date.day;
     final random = Random(seed);
 
-    // Daily challenges are medium-sized (15-25 arrows)
-    final arrowCount = 15 + random.nextInt(11); // 15 to 25
+    final arrowCount = 15 + random.nextInt(11); // 15–25 arrows
     final gridSize = _calculateGridSize(arrowCount);
 
     return _generatePuzzle(
@@ -32,8 +31,7 @@ class DailyChallengeService {
     return 11;
   }
 
-  /// Generate a solvable puzzle using reverse construction
-  /// This guarantees every puzzle has a valid solution
+  /// Generate a solvable puzzle using reverse construction.
   static LevelModel _generatePuzzle({
     required int arrowCount,
     required int gridRows,
@@ -43,19 +41,17 @@ class DailyChallengeService {
     required LevelType type,
     required LevelDifficulty difficulty,
   }) {
-    final arrows = <ArrowModel>[];
-    final solution = <String>[];
-    final occupiedPositions = <String>{};
+    final List<ArrowModel> arrows = [];
+    final Set<String> occupiedPositions = {};
 
     final directions = ArrowDirection.values;
 
-    // Place arrows one by one
     for (int i = 0; i < arrowCount; i++) {
       int row, col;
       String posKey;
-
-      // Find an unoccupied position
       int attempts = 0;
+
+      // Find an unoccupied cell
       do {
         row = random.nextInt(gridRows);
         col = random.nextInt(gridCols);
@@ -68,32 +64,28 @@ class DailyChallengeService {
 
       occupiedPositions.add(posKey);
 
-      ArrowDirection direction;
+      final ArrowDirection direction;
       if (i == 0) {
-        // First arrow - any direction pointing outward
         direction = directions[random.nextInt(directions.length)];
       } else {
-        // Try to find a direction that points toward an existing arrow
-        // OR points to empty space (making it removable)
         direction = _findValidDirection(
           row, col, gridRows, gridCols, arrows, random,
         );
       }
 
-      final arrow = ArrowModel(
+      // pathPoints is optional — ArrowModel auto-generates a default path
+      // based on (row, col, direction) when omitted.
+      arrows.add(ArrowModel(
         id: 'arrow_$i',
         row: row,
         col: col,
         direction: direction,
-      );
-
-      arrows.add(arrow);
-      solution.add(arrow.id);
+      ));
     }
 
-    // The solution is to remove arrows that point to nothing first
-    // We need to compute the actual valid removal order
-    final validSolution = _computeSolution(List.from(arrows), gridRows, gridCols);
+    // Compute the valid removal order under the free-removal rule.
+    final validSolution =
+        _computeSolution(List<ArrowModel>.from(arrows), gridRows, gridCols);
 
     return LevelModel(
       levelNumber: levelNumber,
@@ -118,12 +110,11 @@ class DailyChallengeService {
       ..shuffle(random);
 
     for (final dir in directions) {
-      // Prefer directions that either point to existing arrow or point to edge
       final offset = _getDirectionOffset(dir);
       final targetRow = row + offset.$1;
       final targetCol = col + offset.$2;
 
-      // Points to edge - good
+      // Prefer edge escape
       if (targetRow < 0 ||
           targetRow >= gridRows ||
           targetCol < 0 ||
@@ -131,41 +122,30 @@ class DailyChallengeService {
         return dir;
       }
 
-      // Points to existing arrow - also valid
+      // Or pointing at an existing arrow (creates a dependency chain)
       final pointsToArrow = existingArrows.any(
         (a) => a.row == targetRow && a.col == targetCol,
       );
-      if (pointsToArrow) {
-        return dir;
-      }
+      if (pointsToArrow) return dir;
     }
 
-    // Default to random direction
     return directions.first;
   }
 
   static (int, int) _getDirectionOffset(ArrowDirection direction) {
     switch (direction) {
-      case ArrowDirection.up:
-        return (-1, 0);
-      case ArrowDirection.down:
-        return (1, 0);
-      case ArrowDirection.left:
-        return (0, -1);
-      case ArrowDirection.right:
-        return (0, 1);
-      case ArrowDirection.upLeft:
-        return (-1, -1);
-      case ArrowDirection.upRight:
-        return (-1, 1);
-      case ArrowDirection.downLeft:
-        return (1, -1);
-      case ArrowDirection.downRight:
-        return (1, 1);
+      case ArrowDirection.up:        return (-1, 0);
+      case ArrowDirection.down:      return (1, 0);
+      case ArrowDirection.left:      return (0, -1);
+      case ArrowDirection.right:     return (0, 1);
+      case ArrowDirection.upLeft:    return (-1, -1);
+      case ArrowDirection.upRight:   return (-1, 1);
+      case ArrowDirection.downLeft:  return (1, -1);
+      case ArrowDirection.downRight: return (1, 1);
     }
   }
 
-  /// Compute valid removal order using greedy approach
+  /// Compute a valid removal order using a greedy approach (free-removal rule).
   static List<String> _computeSolution(
     List<ArrowModel> arrows,
     int gridRows,
@@ -188,8 +168,7 @@ class DailyChallengeService {
         solution.add(removable.id);
         remaining.remove(removable);
       } else {
-        // If no removable arrow found, add remaining in order
-        // This handles edge cases
+        // Fallback: add remaining in current order (edge case safety)
         for (final arrow in remaining) {
           solution.add(arrow.id);
         }
@@ -200,9 +179,9 @@ class DailyChallengeService {
     return solution;
   }
 
-  /// Check if an arrow can be removed
-  /// An arrow can be removed if it points to empty space
-  /// (no other arrow in its direction path)
+  /// An arrow can be removed if the IMMEDIATE next cell in its direction
+  /// is empty (no other arrow) or off the grid.
+  /// This matches the same rule used in ArrowLogic.canBeRemoved().
   static bool _canBeRemoved(
     ArrowModel arrow,
     List<ArrowModel> allArrows,
@@ -210,27 +189,22 @@ class DailyChallengeService {
     int gridCols,
   ) {
     final offset = _getDirectionOffset(arrow.direction);
-    int checkRow = arrow.row + offset.$1;
-    int checkCol = arrow.col + offset.$2;
+    final frontRow = arrow.row + offset.$1;
+    final frontCol = arrow.col + offset.$2;
 
-    // Walk in the arrow's direction until we hit edge or another arrow
-    while (checkRow >= 0 &&
-        checkRow < gridRows &&
-        checkCol >= 0 &&
-        checkCol < gridCols) {
-      // Check if any other active arrow is at this position
-      final hasArrow = allArrows.any(
-        (a) => a.id != arrow.id && a.row == checkRow && a.col == checkCol,
-      );
-
-      if (hasArrow) {
-        return false; // Points to another arrow - cannot remove
-      }
-
-      checkRow += offset.$1;
-      checkCol += offset.$2;
+    // Off-grid → free
+    if (frontRow < 0 ||
+        frontRow >= gridRows ||
+        frontCol < 0 ||
+        frontCol >= gridCols) {
+      return true;
     }
 
-    return true; // Points to edge/empty - can remove
+    // Blocked if another arrow sits immediately in front
+    final blocked = allArrows.any(
+      (a) => a.id != arrow.id && a.row == frontRow && a.col == frontCol,
+    );
+
+    return !blocked;
   }
 }

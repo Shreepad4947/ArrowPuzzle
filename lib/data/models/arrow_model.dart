@@ -19,14 +19,15 @@ enum ArrowState {
   removed,
 }
 
-/// A point in the puzzle matrix/grid.
-/// This is used to draw maze-like arrows as paths.
+/// A single point in the puzzle grid used to draw maze-style arrow paths.
+/// [row] and [col] are fractional grid coordinates (e.g. 1.5 = mid-cell).
 class GridPoint {
   final double row;
   final double col;
 
   const GridPoint(this.row, this.col);
 
+  /// Converts to a canvas [Offset] given [cellSize].
   Offset toOffset(double cellSize) {
     return Offset(
       col * cellSize + cellSize / 2,
@@ -38,23 +39,18 @@ class GridPoint {
 class ArrowModel {
   final String id;
 
-  /// Main logical position. Kept for compatibility.
+  /// Logical grid position of the arrow (integer cell).
   final int row;
   final int col;
 
   final ArrowDirection direction;
 
   /// Path points used to draw maze-style arrows.
-  /// Example:
-  /// [
-  ///   GridPoint(3, 0),
-  ///   GridPoint(0, 0),
-  ///   GridPoint(0, 2),
-  /// ]
-  ///
-  /// This draws an L-shaped arrow.
+  /// Must have at least 2 points (tail → head).
   final List<GridPoint> pathPoints;
 
+  // NOTE: state is non-final so it can be mutated during gameplay,
+  // therefore the constructor is NOT const. Use ArrowModel(...) normally.
   ArrowState state;
 
   ArrowModel({
@@ -62,58 +58,59 @@ class ArrowModel {
     required this.row,
     required this.col,
     required this.direction,
-    List<GridPoint>? pathPoints,
+    List<GridPoint>? pathPoints,       // optional — auto-generated if omitted
     this.state = ArrowState.active,
   }) : pathPoints = pathPoints ?? _defaultPath(row, col, direction);
 
+  // ── Default single-cell path based on direction ───────────────────────────
+
   static List<GridPoint> _defaultPath(
-    int row,
-    int col,
-    ArrowDirection direction,
-  ) {
+      int row, int col, ArrowDirection direction) {
     switch (direction) {
       case ArrowDirection.up:
         return [
-          GridPoint(row + 0.6, col.toDouble()),
-          GridPoint(row - 0.6, col.toDouble()),
+          GridPoint(row + 0.4, col.toDouble()),
+          GridPoint(row - 0.4, col.toDouble()),
         ];
       case ArrowDirection.down:
         return [
-          GridPoint(row - 0.6, col.toDouble()),
-          GridPoint(row + 0.6, col.toDouble()),
+          GridPoint(row - 0.4, col.toDouble()),
+          GridPoint(row + 0.4, col.toDouble()),
         ];
       case ArrowDirection.left:
         return [
-          GridPoint(row.toDouble(), col + 0.6),
-          GridPoint(row.toDouble(), col - 0.6),
+          GridPoint(row.toDouble(), col + 0.4),
+          GridPoint(row.toDouble(), col - 0.4),
         ];
       case ArrowDirection.right:
         return [
-          GridPoint(row.toDouble(), col - 0.6),
-          GridPoint(row.toDouble(), col + 0.6),
+          GridPoint(row.toDouble(), col - 0.4),
+          GridPoint(row.toDouble(), col + 0.4),
         ];
       case ArrowDirection.upLeft:
         return [
-          GridPoint(row + 0.5, col + 0.5),
-          GridPoint(row - 0.5, col - 0.5),
+          GridPoint(row + 0.4, col + 0.4),
+          GridPoint(row - 0.4, col - 0.4),
         ];
       case ArrowDirection.upRight:
         return [
-          GridPoint(row + 0.5, col - 0.5),
-          GridPoint(row - 0.5, col + 0.5),
+          GridPoint(row + 0.4, col - 0.4),
+          GridPoint(row - 0.4, col + 0.4),
         ];
       case ArrowDirection.downLeft:
         return [
-          GridPoint(row - 0.5, col + 0.5),
-          GridPoint(row + 0.5, col - 0.5),
+          GridPoint(row - 0.4, col + 0.4),
+          GridPoint(row + 0.4, col - 0.4),
         ];
       case ArrowDirection.downRight:
         return [
-          GridPoint(row - 0.5, col - 0.5),
-          GridPoint(row + 0.5, col + 0.5),
+          GridPoint(row - 0.4, col - 0.4),
+          GridPoint(row + 0.4, col + 0.4),
         ];
     }
   }
+
+  // ── copyWith ──────────────────────────────────────────────────────────────
 
   ArrowModel copyWith({
     String? id,
@@ -133,6 +130,9 @@ class ArrowModel {
     );
   }
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  /// Centre of the arrow for touch detection / tutorial pointer.
   Offset getCenter(double cellSize) {
     if (pathPoints.isEmpty) {
       return Offset(
@@ -140,22 +140,16 @@ class ArrowModel {
         row * cellSize + cellSize / 2,
       );
     }
-
-    double totalX = 0;
-    double totalY = 0;
-
-    for (final point in pathPoints) {
-      final offset = point.toOffset(cellSize);
-      totalX += offset.dx;
-      totalY += offset.dy;
+    double tx = 0, ty = 0;
+    for (final p in pathPoints) {
+      final o = p.toOffset(cellSize);
+      tx += o.dx;
+      ty += o.dy;
     }
-
-    return Offset(
-      totalX / pathPoints.length,
-      totalY / pathPoints.length,
-    );
+    return Offset(tx / pathPoints.length, ty / pathPoints.length);
   }
 
+  /// Unit vector in the arrow's direction (used for slide-out animation).
   Offset get directionOffset {
     switch (direction) {
       case ArrowDirection.up:

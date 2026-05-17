@@ -3,108 +3,103 @@ import '../data/models/arrow_model.dart';
 class ArrowLogic {
   ArrowLogic._();
 
-  /// CORRECT RULE: An arrow can be removed if it does NOT point 
-  /// directly at another active arrow (in adjacent position)
-  /// OR if it points toward the edge/empty space
-  ///
-  /// This allows for branching paths and free ends to be removed
+  /// CORE RULE: An arrow can be removed if the cell it is pointing AT
+  /// (the very next cell in its direction) does NOT contain another active arrow.
+  /// If it points outside the grid, it is also free (edge escape).
   static bool canBeRemoved(
     ArrowModel arrow,
     List<ArrowModel> allArrows,
     int gridRows,
     int gridCols,
   ) {
-    if (arrow.state != ArrowState.active) return false;
+    if (arrow.state != ArrowState.active &&
+        arrow.state != ArrowState.highlighted) return false;
 
-    // Get what's immediately in front of this arrow
     final offset = _getDirOffset(arrow.direction);
     final frontRow = arrow.row + offset.$1;
     final frontCol = arrow.col + offset.$2;
 
-    // Check bounds
-    if (frontRow < 0 || frontRow >= gridRows || 
-        frontCol < 0 || frontCol >= gridCols) {
-      // Points outside grid -> CAN remove (points to edge)
+    // Points outside grid → free to remove (escapes the board)
+    if (frontRow < 0 ||
+        frontRow >= gridRows ||
+        frontCol < 0 ||
+        frontCol >= gridCols) {
       return true;
     }
 
-    // Check if another ACTIVE arrow sits directly in front
-    final blockerExists = allArrows.any((a) =>
-        a.id != arrow.id &&
-        a.state == ArrowState.active &&
-        a.row == frontRow &&
-        a.col == frontCol);
+    // Check if another ACTIVE arrow sits directly in the target cell
+    final blockerExists = allArrows.any(
+      (a) =>
+          a.id != arrow.id &&
+          (a.state == ArrowState.active ||
+              a.state == ArrowState.highlighted) &&
+          a.row == frontRow &&
+          a.col == frontCol,
+    );
 
-    // If blocked by another arrow -> CANNOT remove yet
-    // If clear -> CAN remove
-    return !blockerExists;
+    return !blockerExists; // can remove only if nothing blocks
   }
 
-  /// Find all currently removable arrows (free ends)
+  /// All currently removable arrows (clear-path arrows)
   static List<ArrowModel> findRemovableArrows(
     List<ArrowModel> allArrows,
     int gridRows,
     int gridCols,
   ) {
     return allArrows
-        .where((a) => a.state == ArrowState.active)
+        .where((a) =>
+            a.state == ArrowState.active || a.state == ArrowState.highlighted)
         .where((a) => canBeRemoved(a, allArrows, gridRows, gridCols))
         .toList();
   }
 
-  /// Check stuck state (no moves available but arrows remain)
-  static bool isStuck(List<ArrowModel> allArrows, int gridRows, int gridCols) {
-    final activeCount = allArrows.where((a) => a.state == ArrowState.active).length;
-    if (activeCount == 0) return false; // Completed, not stuck
+  /// True when arrows still remain but none can be removed
+  static bool isStuck(
+      List<ArrowModel> allArrows, int gridRows, int gridCols) {
+    final active = allArrows
+        .where((a) =>
+            a.state == ArrowState.active || a.state == ArrowState.highlighted)
+        .toList();
+    if (active.isEmpty) return false;
     return findRemovableArrows(allArrows, gridRows, gridCols).isEmpty;
   }
 
   static bool isCompleted(List<ArrowModel> allArrows) =>
-      allArrows.every((a) => a.state != ArrowState.active);
+      allArrows.every((a) =>
+          a.state == ArrowState.removed || a.state == ArrowState.removing);
 
-  /// Get hint - find any removable arrow (prefer those at end of paths)
-  static ArrowModel? getHintArrow(List<ArrowModel> arrows) {
-    final removable = arrows.where((a) => a.state == ArrowState.active).toList();
-    
-    // Simple heuristic: prefer arrows that are "leaf nodes" (fewer neighbors)
-    // For now, just return the first removable found via detailed scan
+  /// Hint: return the first removable arrow
+  static ArrowModel? getHintArrow(
+    List<ArrowModel> arrows,
+    int gridRows,
+    int gridCols,
+  ) {
+    final removable = findRemovableArrows(arrows, gridRows, gridCols);
+    if (removable.isEmpty) return null;
+
+    // Prefer arrows that escape the board (point to edge)
     for (final arrow in removable) {
-      final blockers = _countBlockersInAllDirections(arrow, arrows);
-      // Leaf node (only 0-1 neighbors) is likely the end of a path
-      if (blockers <= 1) {
+      final offset = _getDirOffset(arrow.direction);
+      final fr = arrow.row + offset.$1;
+      final fc = arrow.col + offset.$2;
+      if (fr < 0 || fr >= gridRows || fc < 0 || fc >= gridCols) {
         return arrow;
       }
     }
-    
-    // Fallback
-    return removable.isNotEmpty ? removable.first : null;
-  }
 
-  static int _countBlockersInAllDirections(ArrowModel arrow, List<ArrowModel> all) {
-    int count = 0;
-    for (final dir in ArrowDirection.values) {
-      final offset = _getDirOffset(dir);
-      final r = arrow.row + offset.$1;
-      final c = arrow.col + offset.$2;
-      if (anyActiveAt(r, c, all, arrow.id)) count++;
-    }
-    return count;
-  }
-
-  static bool anyActiveAt(int r, int c, List<ArrowModel> all, String excludeId) {
-    return any((ArrowModel a) => a.id != excludeId && a.state == ArrowState.active && a.row == r && a.col == c);
+    return removable.first;
   }
 
   static (int, int) _getDirOffset(ArrowDirection d) {
     switch (d) {
-      case ArrowDirection.up: return (-1, 0);
-      case ArrowDirection.down: return (1, 0);
-      case ArrowDirection.left: return (0, -1);
-      case ArrowDirection.right: return (0, 1);
-      case ArrowDirection.upLeft: return (-1, -1);
-      case ArrowDirection.upRight: return (-1, 1);
+      case ArrowDirection.up:       return (-1, 0);
+      case ArrowDirection.down:     return (1, 0);
+      case ArrowDirection.left:     return (0, -1);
+      case ArrowDirection.right:    return (0, 1);
+      case ArrowDirection.upLeft:   return (-1, -1);
+      case ArrowDirection.upRight:  return (-1, 1);
       case ArrowDirection.downLeft: return (1, -1);
-      case ArrowDirection.downRight: return (1, 1);
+      case ArrowDirection.downRight:return (1, 1);
     }
   }
 }

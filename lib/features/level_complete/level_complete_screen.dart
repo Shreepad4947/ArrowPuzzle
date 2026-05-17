@@ -139,7 +139,8 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
                                         style: TextStyle(
                                           fontSize: 14,
                                           fontWeight: FontWeight.w400,
-                                          color: AppColors.primary.withOpacity(0.7),
+                                          color:
+                                              AppColors.primary.withOpacity(0.7),
                                         ),
                                       ),
                                     ],
@@ -177,19 +178,17 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
   Widget _buildPuzzlePreview(gameState) {
     if (gameState == null) return const SizedBox.shrink();
 
-    // Show all arrows as pointing up (solved state visualization)
-    final previewArrows = gameState.level.arrows.map<ArrowModel>((arrow) {
-      return ArrowModel(
-        id: arrow.id,
-        row: arrow.row,
-        col: arrow.col,
-        direction: ArrowDirection.up,
-        state: ArrowState.active,
-      );
-    }).toList();
-
-    // Show only first few arrows as a clean preview
-    final displayArrows = previewArrows.take(5).toList();
+    // FIX: Use copyWith to preserve existing pathPoints and just
+    // change direction + state — no need to pass pathPoints manually.
+    final previewArrows = gameState.level.arrows
+        .map<ArrowModel>(
+          (arrow) => arrow.copyWith(
+            direction: ArrowDirection.up,
+            state: ArrowState.active,
+          ),
+        )
+        .take(5)
+        .toList();
 
     return Container(
       width: 180,
@@ -207,7 +206,7 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
       ),
       child: CustomPaint(
         painter: ArrowPainter(
-          arrows: displayArrows,
+          arrows: previewArrows,
           gridRows: gameState.level.gridRows,
           gridCols: gameState.level.gridCols,
           cellSize: 180.0 / gameState.level.gridCols.clamp(3, 7),
@@ -222,9 +221,7 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
     if (nextLevel != null) {
       controller.startLevel(nextLevel);
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => const GameScreen(),
-        ),
+        MaterialPageRoute(builder: (_) => const GameScreen()),
       );
     }
   }
@@ -233,9 +230,7 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
     final controller = context.read<GameController>();
     controller.clearGame();
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => const MainNavigation(),
-      ),
+      MaterialPageRoute(builder: (_) => const MainNavigation()),
       (_) => false,
     );
   }

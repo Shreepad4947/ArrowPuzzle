@@ -2,51 +2,44 @@ import '../data/models/arrow_model.dart';
 import '../data/models/level_model.dart';
 import 'arrow_logic.dart';
 
-/// Validates that a level is solvable and the solution is correct
+/// Validates that a level is solvable under the FREE-REMOVAL rule:
+/// any arrow whose path is clear (nothing blocking in front) may be removed.
+/// The validator uses DFS to confirm at least ONE valid removal order exists.
 class LevelValidator {
   LevelValidator._();
 
-  /// Validate that the given solution order actually works
-  static bool validateSolution(LevelModel level) {
+  /// Returns true if the level can be fully cleared under the free-removal rule.
+  static bool isSolvable(LevelModel level) {
     final arrows =
         level.arrows.map((a) => a.copyWith(state: ArrowState.active)).toList();
+    return _dfs(arrows, level.gridRows, level.gridCols);
+  }
 
-    for (final arrowId in level.solutionOrder) {
-      // Find the arrow
-      final arrowIndex = arrows.indexWhere((a) => a.id == arrowId);
-      if (arrowIndex == -1) return false;
+  static bool _dfs(
+      List<ArrowModel> arrows, int gridRows, int gridCols) {
+    // All removed → solved
+    if (ArrowLogic.isCompleted(arrows)) return true;
 
-      final arrow = arrows[arrowIndex];
+    final removable =
+        ArrowLogic.findRemovableArrows(arrows, gridRows, gridCols);
 
-      // Check if it can be removed
-      if (!ArrowLogic.canBeRemoved(
-        arrow,
-        arrows,
-        level.gridRows,
-        level.gridCols,
-      )) {
-        return false; // Solution step is invalid
-      }
+    if (removable.isEmpty) return false; // stuck
 
-      // Remove it
-      arrows[arrowIndex] = arrow.copyWith(state: ArrowState.removed);
+    for (final arrow in removable) {
+      final next = List<ArrowModel>.from(arrows);
+      final idx = next.indexWhere((a) => a.id == arrow.id);
+      next[idx] = next[idx].copyWith(state: ArrowState.removed);
+
+      if (_dfs(next, gridRows, gridCols)) return true;
     }
 
-    // Check all arrows are removed
-    return ArrowLogic.isCompleted(arrows);
+    return false;
   }
 
-  /// Check if a level has at least one valid solution
-  static bool isSolvable(LevelModel level) {
-    return validateSolution(level);
-  }
-
-  /// Validate all levels
+  /// Validate all levels, returns map of levelNumber → isSolvable
   static Map<int, bool> validateAllLevels(List<LevelModel> levels) {
-    final results = <int, bool>{};
-    for (final level in levels) {
-      results[level.levelNumber] = validateSolution(level);
-    }
-    return results;
+    return {
+      for (final level in levels) level.levelNumber: isSolvable(level),
+    };
   }
 }
