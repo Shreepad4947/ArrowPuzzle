@@ -3,6 +3,16 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../data/models/arrow_model.dart';
 
+/// Paints the full game board:
+///  1. Dot grid — a small dot at the centre of EVERY cell (full matrix)
+///  2. Arrows   — one clean, single-cell directional arrow per ArrowModel
+///
+/// Visual style matches Easybrain's Arrow Puzzle:
+///  • Thick rounded line body
+///  • Bold filled triangle arrowhead
+///  • Slides out in its direction when removed
+///  • Yellow glow when hinted
+///  • Red tint when wrong tap
 class ArrowPainter extends CustomPainter {
   final List<ArrowModel> arrows;
   final int gridRows;
@@ -18,165 +28,183 @@ class ArrowPainter extends CustomPainter {
     this.removeAnimations = const {},
   });
 
+  // ── Paint entry ─────────────────────────────────────────────────────────
+
   @override
   void paint(Canvas canvas, Size size) {
-    // ── 1. Draw dots on EVERY grid cell (full matrix background) ──────────────
     _drawFullGridDots(canvas);
-
-    // ── 2. Draw each arrow on top ─────────────────────────────────────────────
     for (final arrow in arrows) {
       if (arrow.state == ArrowState.removed) continue;
-
-      double opacity = 1.0;
-      Offset slideOffset = Offset.zero;
-
-      if (arrow.state == ArrowState.removing) {
-        final progress = removeAnimations[arrow.id] ?? 0.0;
-        opacity = 1.0 - progress;
-        slideOffset = arrow.directionOffset * cellSize * 1.8 * progress;
-      }
-
-      Color color;
-      switch (arrow.state) {
-        case ArrowState.active:
-          color = AppColors.arrowDefault;
-          break;
-        case ArrowState.highlighted:
-          color = AppColors.arrowHint;
-          break;
-        case ArrowState.wrong:
-          color = AppColors.arrowWrong;
-          break;
-        case ArrowState.removing:
-          color = AppColors.arrowDefault;
-          break;
-        case ArrowState.removed:
-          continue;
-      }
-
-      _drawMazeArrow(
-        canvas,
-        arrow,
-        color.withOpacity(opacity),
-        slideOffset,
-        arrow.state == ArrowState.highlighted,
-      );
+      _paintArrow(canvas, arrow);
     }
   }
 
-  // ── Full-grid dot pattern ──────────────────────────────────────────────────
+  // ── Dot grid ────────────────────────────────────────────────────────────
 
-  /// Draws a dot at the centre of EVERY cell in the grid matrix,
-  /// so the background always looks like a full dotted grid regardless
-  /// of which arrows are present.
+  /// Draws a small dot at the centre of every grid cell.
   void _drawFullGridDots(Canvas canvas) {
     final paint = Paint()
-      ..color = AppColors.primaryLight.withOpacity(0.38)
+      ..color = AppColors.primaryLight.withOpacity(0.35)
       ..style = PaintingStyle.fill;
 
-    const double dotRadius = 2.2;
+    const double dotRadius = 2.5;
 
     for (int row = 0; row < gridRows; row++) {
       for (int col = 0; col < gridCols; col++) {
-        final cx = col * cellSize + cellSize / 2;
-        final cy = row * cellSize + cellSize / 2;
-        canvas.drawCircle(Offset(cx, cy), dotRadius, paint);
+        canvas.drawCircle(
+          Offset(col * cellSize + cellSize / 2, row * cellSize + cellSize / 2),
+          dotRadius,
+          paint,
+        );
       }
     }
   }
 
-  // ── Arrow drawing ──────────────────────────────────────────────────────────
+  // ── Arrow painting ───────────────────────────────────────────────────────
 
-  void _drawMazeArrow(
-    Canvas canvas,
-    ArrowModel arrow,
-    Color color,
-    Offset slideOffset,
-    bool isHighlighted,
-  ) {
-    final points = arrow.pathPoints;
-    if (points.length < 2) return;
+  void _paintArrow(Canvas canvas, ArrowModel arrow) {
+    // Animation offset for slide-out
+    double opacity = 1.0;
+    Offset slideOffset = Offset.zero;
 
-    final offsets =
-        points.map((p) => p.toOffset(cellSize) + slideOffset).toList();
-
-    if (isHighlighted) {
-      _drawGlow(canvas, offsets, color);
+    if (arrow.state == ArrowState.removing) {
+      final progress = removeAnimations[arrow.id] ?? 0.0;
+      opacity = (1.0 - progress).clamp(0.0, 1.0);
+      final dir = _directionVector(arrow.direction);
+      slideOffset = Offset(
+        dir.dx * cellSize * 2.0 * progress,
+        dir.dy * cellSize * 2.0 * progress,
+      );
     }
 
-    final linePaint = Paint()
+    // Pick colour
+    final Color baseColor;
+    switch (arrow.state) {
+      case ArrowState.active:
+        baseColor = AppColors.arrowDefault;
+        break;
+      case ArrowState.highlighted:
+        baseColor = AppColors.arrowHint;
+        break;
+      case ArrowState.wrong:
+        baseColor = AppColors.arrowWrong;
+        break;
+      case ArrowState.removing:
+        baseColor = AppColors.arrowDefault;
+        break;
+      case ArrowState.removed:
+        return;
+    }
+
+    final color = baseColor.withOpacity(opacity);
+
+    // Centre of the cell in canvas coordinates
+    final cx = arrow.col * cellSize + cellSize / 2 + slideOffset.dx;
+    final cy = arrow.row * cellSize + cellSize / 2 + slideOffset.dy;
+    final center = Offset(cx, cy);
+
+    canvas.save();
+    canvas.translate(cx, cy);
+
+    if (arrow.state == ArrowState.highlighted) {
+      _drawGlow(canvas, color, cellSize);
+    }
+
+    _drawSingleCellArrow(canvas, arrow.direction, color, cellSize);
+    canvas.restore();
+
+    // Debug: draw cell outline (remove in production)
+    // _drawCellDebug(canvas, arrow, cellSize);
+  }
+
+  /// Draws a clean single-cell arrow centred at (0,0) in local coordinates.
+  /// Matches Easybrain style: thick body + bold filled arrowhead.
+  void _drawSingleCellArrow(
+    Canvas canvas,
+    ArrowDirection direction,
+    Color color,
+    double cellSize,
+  ) {
+    final angle = _directionAngle(direction);
+    final halfBody = cellSize * 0.28; // half-length of arrow body
+    const double headLen = 0.0; // arrowhead is at tip, no extra extension
+
+    // In local space, arrow goes from -halfBody to +halfBody along X axis,
+    // then we rotate to the correct direction.
+    canvas.save();
+    canvas.rotate(angle);
+
+    final tailX = -halfBody;
+    final tipX  =  halfBody;
+
+    // ── Body line ────────────────────────────────────────────────
+    final bodyPaint = Paint()
       ..color = color
-      ..strokeWidth = 4.0
+      ..strokeWidth = cellSize * 0.13
       ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
+      ..strokeCap = StrokeCap.round;
 
-    final path = Path()..moveTo(offsets.first.dx, offsets.first.dy);
-    for (int i = 1; i < offsets.length; i++) {
-      path.lineTo(offsets[i].dx, offsets[i].dy);
-    }
-    canvas.drawPath(path, linePaint);
+    // Body stops slightly before the tip so the head looks clean
+    final bodyEndX = tipX - cellSize * 0.12;
+    canvas.drawLine(Offset(tailX, 0), Offset(bodyEndX, 0), bodyPaint);
 
-    _drawFilledArrowHead(canvas, offsets, color);
-  }
-
-  void _drawGlow(Canvas canvas, List<Offset> offsets, Color color) {
-    final glowPaint = Paint()
-      ..color = color.withOpacity(0.28)
-      ..strokeWidth = 11
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
-
-    final path = Path()..moveTo(offsets.first.dx, offsets.first.dy);
-    for (int i = 1; i < offsets.length; i++) {
-      path.lineTo(offsets[i].dx, offsets[i].dy);
-    }
-    canvas.drawPath(path, glowPaint);
-  }
-
-  void _drawFilledArrowHead(
-    Canvas canvas,
-    List<Offset> offsets,
-    Color color,
-  ) {
-    if (offsets.length < 2) return;
-
-    final tip = offsets.last;
-    final beforeTip = offsets[offsets.length - 2];
-
-    final dx = tip.dx - beforeTip.dx;
-    final dy = tip.dy - beforeTip.dy;
-    final angle = math.atan2(dy, dx);
-
-    const double headLength = 14;
-    const double headWidth = 16;
-
-    final backCenter = Offset(
-      tip.dx - math.cos(angle) * headLength,
-      tip.dy - math.sin(angle) * headLength,
-    );
-    final perp = angle + math.pi / 2;
-
-    final p1 = tip;
-    final p2 = Offset(
-      backCenter.dx + math.cos(perp) * headWidth / 2,
-      backCenter.dy + math.sin(perp) * headWidth / 2,
-    );
-    final p3 = Offset(
-      backCenter.dx - math.cos(perp) * headWidth / 2,
-      backCenter.dy - math.sin(perp) * headWidth / 2,
-    );
+    // ── Arrowhead (filled triangle) ──────────────────────────────
+    final headBaseX = tipX - cellSize * 0.22;
+    final headHalfW = cellSize * 0.14;
 
     final headPath = Path()
-      ..moveTo(p1.dx, p1.dy)
-      ..lineTo(p2.dx, p2.dy)
-      ..lineTo(p3.dx, p3.dy)
+      ..moveTo(tipX, 0)                         // tip
+      ..lineTo(headBaseX,  headHalfW)           // bottom-left
+      ..lineTo(headBaseX, -headHalfW)           // top-left
       ..close();
 
-    canvas.drawPath(
-        headPath, Paint()..color = color..style = PaintingStyle.fill);
+    final headPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    canvas.drawPath(headPath, headPaint);
+    canvas.restore();
+  }
+
+  // ── Glow effect for hint ────────────────────────────────────────────────
+
+  void _drawGlow(Canvas canvas, Color color, double cellSize) {
+    final glowPaint = Paint()
+      ..color = color.withOpacity(0.22)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, cellSize * 0.18);
+
+    canvas.drawCircle(Offset.zero, cellSize * 0.38, glowPaint);
+  }
+
+  // ── Direction helpers ───────────────────────────────────────────────────
+
+  /// Rotation angle so the arrow points in the correct direction.
+  /// Base orientation is RIGHT (0 radians).
+  double _directionAngle(ArrowDirection d) {
+    switch (d) {
+      case ArrowDirection.right:     return 0;
+      case ArrowDirection.down:      return math.pi / 2;
+      case ArrowDirection.left:      return math.pi;
+      case ArrowDirection.up:        return -math.pi / 2;
+      case ArrowDirection.upRight:   return -math.pi / 4;
+      case ArrowDirection.downRight: return math.pi / 4;
+      case ArrowDirection.downLeft:  return 3 * math.pi / 4;
+      case ArrowDirection.upLeft:    return -3 * math.pi / 4;
+    }
+  }
+
+  /// Unit direction vector for slide-out animation.
+  Offset _directionVector(ArrowDirection d) {
+    switch (d) {
+      case ArrowDirection.up:        return const Offset(0, -1);
+      case ArrowDirection.down:      return const Offset(0, 1);
+      case ArrowDirection.left:      return const Offset(-1, 0);
+      case ArrowDirection.right:     return const Offset(1, 0);
+      case ArrowDirection.upLeft:    return const Offset(-0.707, -0.707);
+      case ArrowDirection.upRight:   return const Offset(0.707, -0.707);
+      case ArrowDirection.downLeft:  return const Offset(-0.707, 0.707);
+      case ArrowDirection.downRight: return const Offset(0.707, 0.707);
+    }
   }
 
   @override

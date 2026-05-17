@@ -1,21 +1,8 @@
 import 'arrow_model.dart';
 
-/// Difficulty levels
-enum LevelDifficulty {
-  easy,
-  normal,
-  hard,
-  expert,
-}
+enum LevelDifficulty { easy, normal, hard, expert }
+enum LevelType { tutorial, regular, daily }
 
-/// Type of level
-enum LevelType {
-  tutorial,
-  regular,
-  daily,
-}
-
-/// Represents a complete level definition
 class LevelModel {
   final int levelNumber;
   final LevelType type;
@@ -23,7 +10,7 @@ class LevelModel {
   final int gridRows;
   final int gridCols;
   final List<ArrowModel> arrows;
-  final List<String> solutionOrder; // Correct order of arrow IDs to tap
+  final List<String> solutionOrder;
   final bool showTutorial;
   final String? tutorialMessage;
 
@@ -44,31 +31,20 @@ class LevelModel {
 
   String get difficultyLabel {
     switch (difficulty) {
-      case LevelDifficulty.easy:
-        return 'Easy';
-      case LevelDifficulty.normal:
-        return 'Normal';
-      case LevelDifficulty.hard:
-        return 'Hard';
-      case LevelDifficulty.expert:
-        return 'Expert';
+      case LevelDifficulty.easy:   return 'Easy';
+      case LevelDifficulty.normal: return 'Normal';
+      case LevelDifficulty.hard:   return 'Hard';
+      case LevelDifficulty.expert: return 'Expert';
     }
   }
 
-  /// Creates a deep copy of the level with fresh arrow states
   LevelModel freshCopy() {
     return LevelModel(
-      levelNumber: levelNumber,
-      type: type,
-      difficulty: difficulty,
-      gridRows: gridRows,
-      gridCols: gridCols,
-      arrows: arrows
-          .map((a) => a.copyWith(state: ArrowState.active))
-          .toList(),
-      solutionOrder: List.from(solutionOrder),
-      showTutorial: showTutorial,
-      tutorialMessage: tutorialMessage,
+      levelNumber: levelNumber, type: type, difficulty: difficulty,
+      gridRows: gridRows, gridCols: gridCols,
+      arrows: arrows.map((a) => a.copyWith(state: ArrowState.active)).toList(),
+      solutionOrder: List<String>.from(solutionOrder),
+      showTutorial: showTutorial, tutorialMessage: tutorialMessage,
     );
   }
 }

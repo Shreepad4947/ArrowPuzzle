@@ -11,13 +11,11 @@ import 'game_engine/game_controller.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Lock to portrait mode
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
 
-  // Set system UI overlay style
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -27,11 +25,9 @@ void main() async {
     ),
   );
 
-  // Initialize storage
   final storageService = StorageService();
   await storageService.init();
 
-  // Initialize repositories
   final levelRepository = LevelRepository();
   final userRepository = UserRepository(storageService: storageService);
   final gameRepository = GameRepository(
@@ -42,11 +38,11 @@ void main() async {
   runApp(
     MultiProvider(
       providers: [
-        Provider<StorageService>.value(value: storageService),
-        Provider<LevelRepository>.value(value: levelRepository),
-        Provider<UserRepository>.value(value: userRepository),
-        Provider<GameRepository>.value(value: gameRepository),
-        ChangeNotifierProvider<GameController>(
+        Provider.value(value: storageService),
+        Provider.value(value: levelRepository),
+        Provider.value(value: userRepository),
+        Provider.value(value: gameRepository),
+        ChangeNotifierProvider(
           create: (_) => GameController(
             gameRepository: gameRepository,
             userRepository: userRepository,

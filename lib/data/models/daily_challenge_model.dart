@@ -13,16 +13,9 @@ class DailyChallengeModel {
     this.movesUsed,
   });
 
-  DailyChallengeModel copyWith({
-    DateTime? date,
-    bool? isCompleted,
-    int? starsEarned,
-    Duration? completionTime,
-    int? movesUsed,
-  }) {
+  DailyChallengeModel copyWith({DateTime? date, bool? isCompleted, int? starsEarned, Duration? completionTime, int? movesUsed}) {
     return DailyChallengeModel(
-      date: date ?? this.date,
-      isCompleted: isCompleted ?? this.isCompleted,
+      date: date ?? this.date, isCompleted: isCompleted ?? this.isCompleted,
       starsEarned: starsEarned ?? this.starsEarned,
       completionTime: completionTime ?? this.completionTime,
       movesUsed: movesUsed ?? this.movesUsed,

@@ -1,11 +1,19 @@
 import '../data/models/arrow_model.dart';
 
+/// Core puzzle logic for the Arrow Puzzle game.
+///
+/// OFFICIAL RULE (from Easybrain's Arrow Puzzle):
+///   An arrow can be removed if its ENTIRE PATH from its cell to the
+///   grid edge is clear — no other active arrow anywhere along that line.
+///   It is NOT just the immediate next cell.
 class ArrowLogic {
   ArrowLogic._();
 
-  /// CORE RULE: An arrow can be removed if the cell it is pointing AT
-  /// (the very next cell in its direction) does NOT contain another active arrow.
-  /// If it points outside the grid, it is also free (edge escape).
+  // ─── Core removal check ──────────────────────────────────────────────────
+
+  /// Returns true if [arrow] can currently be removed.
+  /// Walks the full path in the arrow's direction to the grid edge.
+  /// If ANY active arrow occupies any cell along that path → blocked.
   static bool canBeRemoved(
     ArrowModel arrow,
     List<ArrowModel> allArrows,
@@ -16,31 +24,34 @@ class ArrowLogic {
         arrow.state != ArrowState.highlighted) return false;
 
     final offset = _getDirOffset(arrow.direction);
-    final frontRow = arrow.row + offset.$1;
-    final frontCol = arrow.col + offset.$2;
+    int checkRow = arrow.row + offset.$1;
+    int checkCol = arrow.col + offset.$2;
 
-    // Points outside grid → free to remove (escapes the board)
-    if (frontRow < 0 ||
-        frontRow >= gridRows ||
-        frontCol < 0 ||
-        frontCol >= gridCols) {
-      return true;
+    // Walk every cell in the arrow's direction until we leave the grid
+    while (checkRow >= 0 &&
+        checkRow < gridRows &&
+        checkCol >= 0 &&
+        checkCol < gridCols) {
+      final blocked = allArrows.any(
+        (a) =>
+            a.id != arrow.id &&
+            (a.state == ArrowState.active ||
+                a.state == ArrowState.highlighted) &&
+            a.row == checkRow &&
+            a.col == checkCol,
+      );
+      if (blocked) return false; // Something is blocking the path
+
+      checkRow += offset.$1;
+      checkCol += offset.$2;
     }
 
-    // Check if another ACTIVE arrow sits directly in the target cell
-    final blockerExists = allArrows.any(
-      (a) =>
-          a.id != arrow.id &&
-          (a.state == ArrowState.active ||
-              a.state == ArrowState.highlighted) &&
-          a.row == frontRow &&
-          a.col == frontCol,
-    );
-
-    return !blockerExists; // can remove only if nothing blocks
+    return true; // Clear all the way to the edge
   }
 
-  /// All currently removable arrows (clear-path arrows)
+  // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  /// Returns all arrows that can currently be removed.
   static List<ArrowModel> findRemovableArrows(
     List<ArrowModel> allArrows,
     int gridRows,
@@ -53,7 +64,7 @@ class ArrowLogic {
         .toList();
   }
 
-  /// True when arrows still remain but none can be removed
+  /// True when arrows remain but none can be removed (puzzle is stuck).
   static bool isStuck(
       List<ArrowModel> allArrows, int gridRows, int gridCols) {
     final active = allArrows
@@ -64,11 +75,11 @@ class ArrowLogic {
     return findRemovableArrows(allArrows, gridRows, gridCols).isEmpty;
   }
 
-  static bool isCompleted(List<ArrowModel> allArrows) =>
-      allArrows.every((a) =>
-          a.state == ArrowState.removed || a.state == ArrowState.removing);
+  /// True when every arrow has been removed.
+  static bool isCompleted(List<ArrowModel> allArrows) => allArrows.every(
+      (a) => a.state == ArrowState.removed || a.state == ArrowState.removing);
 
-  /// Hint: return the first removable arrow
+  /// Returns a good hint arrow — prefers arrows whose path exits the board.
   static ArrowModel? getHintArrow(
     List<ArrowModel> arrows,
     int gridRows,
@@ -77,12 +88,15 @@ class ArrowLogic {
     final removable = findRemovableArrows(arrows, gridRows, gridCols);
     if (removable.isEmpty) return null;
 
-    // Prefer arrows that escape the board (point to edge)
+    // Prefer arrows that point directly off the board edge
     for (final arrow in removable) {
       final offset = _getDirOffset(arrow.direction);
-      final fr = arrow.row + offset.$1;
-      final fc = arrow.col + offset.$2;
-      if (fr < 0 || fr >= gridRows || fc < 0 || fc >= gridCols) {
+      final nextRow = arrow.row + offset.$1;
+      final nextCol = arrow.col + offset.$2;
+      if (nextRow < 0 ||
+          nextRow >= gridRows ||
+          nextCol < 0 ||
+          nextCol >= gridCols) {
         return arrow;
       }
     }
@@ -90,16 +104,19 @@ class ArrowLogic {
     return removable.first;
   }
 
+  // ─── Direction offset ─────────────────────────────────────────────────────
+
   static (int, int) _getDirOffset(ArrowDirection d) {
     switch (d) {
-      case ArrowDirection.up:       return (-1, 0);
-      case ArrowDirection.down:     return (1, 0);
-      case ArrowDirection.left:     return (0, -1);
-      case ArrowDirection.right:    return (0, 1);
-      case ArrowDirection.upLeft:   return (-1, -1);
-      case ArrowDirection.upRight:  return (-1, 1);
-      case ArrowDirection.downLeft: return (1, -1);
-      case ArrowDirection.downRight:return (1, 1);
+      case ArrowDirection.up:        return (-1, 0);
+      case ArrowDirection.down:      return (1, 0);
+      case ArrowDirection.left:      return (0, -1);
+      case ArrowDirection.right:     return (0, 1);
+      // Diagonals kept for compatibility but not used in standard levels
+      case ArrowDirection.upLeft:    return (-1, -1);
+      case ArrowDirection.upRight:   return (-1, 1);
+      case ArrowDirection.downLeft:  return (1, -1);
+      case ArrowDirection.downRight: return (1, 1);
     }
   }
 }

@@ -14,24 +14,17 @@ class GameController extends ChangeNotifier {
   GameStateModel? _gameState;
   bool _isAnimating = false;
 
-  GameController({
-    required this.gameRepository,
-    required this.userRepository,
-  });
+  GameController({required this.gameRepository, required this.userRepository});
 
   GameStateModel? get gameState => _gameState;
   bool get isAnimating => _isAnimating;
   bool get hasActiveGame => _gameState != null;
-
   int get currentUserLevel => gameRepository.getCurrentLevel();
   int get hintsAvailable => userRepository.hintsAvailable;
-
-  // ─── Level start ────────────────────────────────────────────────────────────
 
   void startLevel(int levelNumber) {
     _gameState = gameRepository.createGameSession(levelNumber);
     _isAnimating = false;
-    debugPrint('Started level: ${_gameState!.level.levelNumber}');
     notifyListeners();
   }
 
@@ -51,31 +44,18 @@ class GameController extends ChangeNotifier {
     }
   }
 
-  // ─── Arrow tap ──────────────────────────────────────────────────────────────
-
   Future<void> onArrowTapped(String arrowId) async {
-    if (_gameState == null) return;
-    if (_isAnimating) return;
+    if (_gameState == null || _isAnimating) return;
     if (_gameState!.isCompleted || _gameState!.isFailed) return;
 
     final state = _gameState!;
-    final arrowIndex =
-        state.currentArrows.indexWhere((a) => a.id == arrowId);
+    final arrowIndex = state.currentArrows.indexWhere((a) => a.id == arrowId);
     if (arrowIndex == -1) return;
 
     final arrow = state.currentArrows[arrowIndex];
+    if (arrow.state != ArrowState.active && arrow.state != ArrowState.highlighted) return;
 
-    if (arrow.state != ArrowState.active &&
-        arrow.state != ArrowState.highlighted) return;
-
-    // ── NEW LOGIC: accept any arrow that currently has a clear path ──────────
-    final canRemove = ArrowLogic.canBeRemoved(
-      arrow,
-      state.currentArrows,
-      state.level.gridRows,
-      state.level.gridCols,
-    );
-
+    final canRemove = ArrowLogic.canBeRemoved(arrow, state.currentArrows, state.level.gridRows, state.level.gridCols);
     debugPrint('Tapped: ${arrow.id}  canRemove=$canRemove');
 
     if (canRemove) {
@@ -85,49 +65,31 @@ class GameController extends ChangeNotifier {
     }
   }
 
-  // ─── Correct tap ─────────────────────────────────────────────────────────
-
   Future<void> _handleCorrectTap(int arrowIndex) async {
     _isAnimating = true;
-
     final state = _gameState!;
     final updatedArrows = List<ArrowModel>.from(state.currentArrows);
     final tappedArrow = updatedArrows[arrowIndex];
 
-    // Start remove animation
     updatedArrows[arrowIndex] = tappedArrow.copyWith(state: ArrowState.removing);
-
-    _gameState = state.copyWith(
-      currentArrows: updatedArrows,
-      clearLastWrong: true,
-      clearHint: true,
-    );
-
+    _gameState = state.copyWith(currentArrows: updatedArrows, clearLastWrong: true, clearHint: true);
     HapticManager.lightImpact();
     notifyListeners();
 
     await Future.delayed(const Duration(milliseconds: 430));
     if (_gameState == null) return;
 
-    // Mark as fully removed
     final postArrows = List<ArrowModel>.from(_gameState!.currentArrows);
     final idx = postArrows.indexWhere((a) => a.id == tappedArrow.id);
-    if (idx != -1) {
-      postArrows[idx] = postArrows[idx].copyWith(state: ArrowState.removed);
-    }
+    if (idx != -1) postArrows[idx] = postArrows[idx].copyWith(state: ArrowState.removed);
 
-    final newRemovedIds = List<String>.from(_gameState!.removedArrowIds)
-      ..add(tappedArrow.id);
-
+    final newRemovedIds = List<String>.from(_gameState!.removedArrowIds)..add(tappedArrow.id);
     final isComplete = postArrows.every((a) => a.state == ArrowState.removed);
 
     _gameState = _gameState!.copyWith(
-      currentArrows: postArrows,
-      movesMade: _gameState!.movesMade + 1,
-      removedArrowIds: newRemovedIds,
-      isCompleted: isComplete,
+      currentArrows: postArrows, movesMade: _gameState!.movesMade + 1,
+      removedArrowIds: newRemovedIds, isCompleted: isComplete,
     );
-
     _isAnimating = false;
 
     if (isComplete) {
@@ -138,33 +100,24 @@ class GameController extends ChangeNotifier {
         await userRepository.completeLevel(state.level.levelNumber);
       }
     }
-
     notifyListeners();
   }
 
-  // ─── Wrong tap ───────────────────────────────────────────────────────────
-
   Future<void> _handleWrongTap(int arrowIndex) async {
     _isAnimating = true;
-
     final state = _gameState!;
     final updatedArrows = List<ArrowModel>.from(state.currentArrows);
     final wrongArrow = updatedArrows[arrowIndex];
 
     updatedArrows[arrowIndex] = wrongArrow.copyWith(state: ArrowState.wrong);
-
     final newLives = state.livesRemaining - 1;
     final isFailed = newLives <= 0;
 
     _gameState = state.copyWith(
-      currentArrows: updatedArrows,
-      livesRemaining: newLives,
-      wrongMoves: state.wrongMoves + 1,
-      lastWrongArrowId: wrongArrow.id,
-      isFailed: isFailed,
-      clearHint: true,
+      currentArrows: updatedArrows, livesRemaining: newLives,
+      wrongMoves: state.wrongMoves + 1, lastWrongArrowId: wrongArrow.id,
+      isFailed: isFailed, clearHint: true,
     );
-
     HapticManager.errorVibration();
     notifyListeners();
 
@@ -173,86 +126,53 @@ class GameController extends ChangeNotifier {
 
     if (!isFailed) {
       final resetArrows = List<ArrowModel>.from(_gameState!.currentArrows);
-      final resetIndex =
-          resetArrows.indexWhere((a) => a.id == wrongArrow.id);
-      if (resetIndex != -1 &&
-          resetArrows[resetIndex].state == ArrowState.wrong) {
-        resetArrows[resetIndex] =
-            resetArrows[resetIndex].copyWith(state: ArrowState.active);
+      final resetIndex = resetArrows.indexWhere((a) => a.id == wrongArrow.id);
+      if (resetIndex != -1 && resetArrows[resetIndex].state == ArrowState.wrong) {
+        resetArrows[resetIndex] = resetArrows[resetIndex].copyWith(state: ArrowState.active);
         _gameState = _gameState!.copyWith(currentArrows: resetArrows);
       }
     }
-
     _isAnimating = false;
     notifyListeners();
   }
 
-  // ─── Hint ────────────────────────────────────────────────────────────────
-
   Future<void> useHint() async {
-    if (_gameState == null) return;
-    if (_gameState!.isCompleted || _gameState!.isFailed) return;
+    if (_gameState == null || _gameState!.isCompleted || _gameState!.isFailed) return;
     if (userRepository.hintsAvailable <= 0) return;
 
-    final hintArrow = ArrowLogic.getHintArrow(
-      _gameState!.currentArrows,
-      _gameState!.level.gridRows,
-      _gameState!.level.gridCols,
-    );
+    final hintArrow = ArrowLogic.getHintArrow(_gameState!.currentArrows, _gameState!.level.gridRows, _gameState!.level.gridCols);
     if (hintArrow == null) return;
 
     await userRepository.useHint();
-
     final updatedArrows = List<ArrowModel>.from(_gameState!.currentArrows);
-    final hintIndex =
-        updatedArrows.indexWhere((a) => a.id == hintArrow.id);
-    if (hintIndex != -1) {
-      updatedArrows[hintIndex] =
-          updatedArrows[hintIndex].copyWith(state: ArrowState.highlighted);
-    }
+    final hintIndex = updatedArrows.indexWhere((a) => a.id == hintArrow.id);
+    if (hintIndex != -1) updatedArrows[hintIndex] = updatedArrows[hintIndex].copyWith(state: ArrowState.highlighted);
 
     _gameState = _gameState!.copyWith(
-      currentArrows: updatedArrows,
-      hintsRemaining: userRepository.hintsAvailable,
-      showingHint: true,
-      hintArrowId: hintArrow.id,
+      currentArrows: updatedArrows, hintsRemaining: userRepository.hintsAvailable,
+      showingHint: true, hintArrowId: hintArrow.id,
     );
-
     notifyListeners();
 
     await Future.delayed(const Duration(seconds: 3));
     if (_gameState == null) return;
 
     final resetArrows = List<ArrowModel>.from(_gameState!.currentArrows);
-    final resetIndex =
-        resetArrows.indexWhere((a) => a.id == hintArrow.id);
-    if (resetIndex != -1 &&
-        resetArrows[resetIndex].state == ArrowState.highlighted) {
-      resetArrows[resetIndex] =
-          resetArrows[resetIndex].copyWith(state: ArrowState.active);
-      _gameState = _gameState!.copyWith(
-        currentArrows: resetArrows,
-        clearHint: true,
-      );
+    final resetIndex = resetArrows.indexWhere((a) => a.id == hintArrow.id);
+    if (resetIndex != -1 && resetArrows[resetIndex].state == ArrowState.highlighted) {
+      resetArrows[resetIndex] = resetArrows[resetIndex].copyWith(state: ArrowState.active);
+      _gameState = _gameState!.copyWith(currentArrows: resetArrows, clearHint: true);
       notifyListeners();
     }
   }
 
-  // ─── Misc ────────────────────────────────────────────────────────────────
-
   void addExtraLife() {
     if (_gameState == null) return;
-    _gameState = _gameState!.copyWith(
-      livesRemaining: _gameState!.livesRemaining + 1,
-      isFailed: false,
-    );
+    _gameState = _gameState!.copyWith(livesRemaining: _gameState!.livesRemaining + 1, isFailed: false);
     notifyListeners();
   }
 
-  void clearGame() {
-    _gameState = null;
-    notifyListeners();
-  }
+  void clearGame() { _gameState = null; notifyListeners(); }
 
   bool hasNextLevel() {
     if (_gameState == null) return false;

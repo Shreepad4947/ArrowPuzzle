@@ -12,31 +12,18 @@ class UserProgressModel {
   final Map<String, bool> dailyChallengeCompletionMap;
 
   const UserProgressModel({
-    this.currentLevel = 1,
-    this.totalStarsEarned = 0,
-    this.hintsAvailable = 2,
-    this.levelsCompleted = 0,
-    this.hasAcceptedTerms = false,
-    this.hasSeenOnboarding = false,
-    this.hasSeenDailyWelcome = false,
-    this.soundEnabled = true,
-    this.vibrationEnabled = true,
-    this.levelCompletionMap = const {},
-    this.dailyChallengeCompletionMap = const {},
+    this.currentLevel = 1, this.totalStarsEarned = 0, this.hintsAvailable = 2,
+    this.levelsCompleted = 0, this.hasAcceptedTerms = false,
+    this.hasSeenOnboarding = false, this.hasSeenDailyWelcome = false,
+    this.soundEnabled = true, this.vibrationEnabled = true,
+    this.levelCompletionMap = const {}, this.dailyChallengeCompletionMap = const {},
   });
 
   UserProgressModel copyWith({
-    int? currentLevel,
-    int? totalStarsEarned,
-    int? hintsAvailable,
-    int? levelsCompleted,
-    bool? hasAcceptedTerms,
-    bool? hasSeenOnboarding,
-    bool? hasSeenDailyWelcome,
-    bool? soundEnabled,
-    bool? vibrationEnabled,
-    Map<int, bool>? levelCompletionMap,
-    Map<String, bool>? dailyChallengeCompletionMap,
+    int? currentLevel, int? totalStarsEarned, int? hintsAvailable,
+    int? levelsCompleted, bool? hasAcceptedTerms, bool? hasSeenOnboarding,
+    bool? hasSeenDailyWelcome, bool? soundEnabled, bool? vibrationEnabled,
+    Map<int, bool>? levelCompletionMap, Map<String, bool>? dailyChallengeCompletionMap,
   }) {
     return UserProgressModel(
       currentLevel: currentLevel ?? this.currentLevel,
@@ -49,15 +36,11 @@ class UserProgressModel {
       soundEnabled: soundEnabled ?? this.soundEnabled,
       vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
       levelCompletionMap: levelCompletionMap ?? this.levelCompletionMap,
-      dailyChallengeCompletionMap:
-          dailyChallengeCompletionMap ?? this.dailyChallengeCompletionMap,
+      dailyChallengeCompletionMap: dailyChallengeCompletionMap ?? this.dailyChallengeCompletionMap,
     );
   }
 
-  bool isLevelCompleted(int levelNumber) {
-    return levelCompletionMap[levelNumber] ?? false;
-  }
-
+  bool isLevelCompleted(int levelNumber) => levelCompletionMap[levelNumber] ?? false;
   bool isDailyChallengeCompleted(DateTime date) {
     final key = '${date.year}-${date.month}-${date.day}';
     return dailyChallengeCompletionMap[key] ?? false;
@@ -71,9 +54,7 @@ class UserProgressModel {
         if (parts.length == 3) {
           final y = int.tryParse(parts[0]);
           final m = int.tryParse(parts[1]);
-          if (y == year && m == month) {
-            count++;
-          }
+          if (y == year && m == month) count++;
         }
       }
     });

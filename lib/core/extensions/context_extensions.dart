@@ -18,8 +18,8 @@ extension ContextExtensions on BuildContext {
     );
   }
 
-  Future<T?> showAppDialog<T>(Widget dialog) {
-    return showDialog<T>(
+  Future<void> showAppDialog(Widget dialog) {
+    return showDialog(
       context: this,
       barrierDismissible: false,
       builder: (_) => dialog,
@@ -27,15 +27,11 @@ extension ContextExtensions on BuildContext {
   }
 
   void pushScreen(Widget screen) {
-    Navigator.of(this).push(
-      MaterialPageRoute(builder: (_) => screen),
-    );
+    Navigator.of(this).push(MaterialPageRoute(builder: (_) => screen));
   }
 
   void pushReplacementScreen(Widget screen) {
-    Navigator.of(this).pushReplacement(
-      MaterialPageRoute(builder: (_) => screen),
-    );
+    Navigator.of(this).pushReplacement(MaterialPageRoute(builder: (_) => screen));
   }
 
   void pushAndRemoveAll(Widget screen) {

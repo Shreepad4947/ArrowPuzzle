@@ -1,7 +1,6 @@
 import 'arrow_model.dart';
 import 'level_model.dart';
 
-/// Current state of an active game
 class GameStateModel {
   final LevelModel level;
   final List<ArrowModel> currentArrows;
@@ -35,30 +34,17 @@ class GameStateModel {
     DateTime? startTime,
   }) : startTime = startTime ?? DateTime.now();
 
-  int get remainingArrows =>
-      currentArrows.where((a) => a.state == ArrowState.active).length;
-
+  int get remainingArrows => currentArrows.where((a) => a.state == ArrowState.active).length;
   int get totalArrows => level.totalArrows;
-
   int get flagCount => level.totalMoves;
 
   GameStateModel copyWith({
-    LevelModel? level,
-    List<ArrowModel>? currentArrows,
-    int? livesRemaining,
-    int? hintsRemaining,
-    int? movesMade,
-    int? wrongMoves,
-    List<String>? removedArrowIds,
-    String? lastWrongArrowId,
-    bool? isCompleted,
-    bool? isFailed,
-    bool? isPaused,
-    bool? showingHint,
-    String? hintArrowId,
-    DateTime? startTime,
-    bool clearLastWrong = false,
-    bool clearHint = false,
+    LevelModel? level, List<ArrowModel>? currentArrows,
+    int? livesRemaining, int? hintsRemaining, int? movesMade, int? wrongMoves,
+    List<String>? removedArrowIds, String? lastWrongArrowId,
+    bool? isCompleted, bool? isFailed, bool? isPaused,
+    bool? showingHint, String? hintArrowId, DateTime? startTime,
+    bool clearLastWrong = false, bool clearHint = false,
   }) {
     return GameStateModel(
       level: level ?? this.level,
@@ -68,8 +54,7 @@ class GameStateModel {
       movesMade: movesMade ?? this.movesMade,
       wrongMoves: wrongMoves ?? this.wrongMoves,
       removedArrowIds: removedArrowIds ?? this.removedArrowIds,
-      lastWrongArrowId:
-          clearLastWrong ? null : (lastWrongArrowId ?? this.lastWrongArrowId),
+      lastWrongArrowId: clearLastWrong ? null : (lastWrongArrowId ?? this.lastWrongArrowId),
       isCompleted: isCompleted ?? this.isCompleted,
       isFailed: isFailed ?? this.isFailed,
       isPaused: isPaused ?? this.isPaused,

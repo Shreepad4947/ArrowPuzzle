@@ -3,6 +3,11 @@ import 'package:flutter/material.dart';
 import '../../../data/models/arrow_model.dart';
 import 'arrow_painter.dart';
 
+/// The interactive game board widget.
+/// Renders a grid of arrows via [ArrowPainter] and handles tap detection.
+///
+/// Tap detection is cell-based: the tapped cell (row, col) is computed
+/// from the tap position, then matched against arrows at that cell.
 class GameBoard extends StatefulWidget {
   final List<ArrowModel> arrows;
   final int gridRows;
@@ -32,7 +37,6 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(GameBoard oldWidget) {
     super.didUpdateWidget(oldWidget);
-
     for (final arrow in widget.arrows) {
       if (arrow.state == ArrowState.removing &&
           !_removeControllers.containsKey(arrow.id)) {
@@ -44,17 +48,11 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
   void _startRemoveAnimation(String arrowId) {
     final controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 420),
+      duration: const Duration(milliseconds: 380),
     );
-
     controller.addListener(() {
-      if (mounted) {
-        setState(() {
-          _removeAnimations[arrowId] = controller.value;
-        });
-      }
+      if (mounted) setState(() => _removeAnimations[arrowId] = controller.value);
     });
-
     controller.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
         _removeControllers.remove(arrowId);
@@ -62,185 +60,112 @@ class _GameBoardState extends State<GameBoard> with TickerProviderStateMixin {
         controller.dispose();
       }
     });
-
     _removeControllers[arrowId] = controller;
     controller.forward();
   }
 
   @override
   void dispose() {
-    for (final controller in _removeControllers.values) {
-      controller.dispose();
-    }
+    for (final c in _removeControllers.values) c.dispose();
     super.dispose();
   }
 
+  // ── Build ─────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final maxWidth = constraints.maxWidth;
-        final maxHeight = constraints.maxHeight;
+    return LayoutBuilder(builder: (context, constraints) {
+      // Compute cell size — fit the board inside the available space
+      final cellSizeW = constraints.maxWidth / widget.gridCols;
+      final cellSizeH = constraints.maxHeight / widget.gridRows;
+      final cellSize = math.min(cellSizeW, cellSizeH).clamp(40.0, 80.0);
 
-        final cellSizeW = maxWidth / widget.gridCols;
-        final cellSizeH = maxHeight / widget.gridRows;
-        final rawCellSize = math.min(cellSizeW, cellSizeH);
+      final boardWidth = cellSize * widget.gridCols;
+      final boardHeight = cellSize * widget.gridRows;
 
-        final cellSize = rawCellSize.clamp(44.0, 72.0);
-
-        final boardWidth = cellSize * widget.gridCols;
-        final boardHeight = cellSize * widget.gridRows;
-
-        return Center(
-          child: SizedBox(
-            width: boardWidth,
-            height: boardHeight,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Positioned.fill(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTapDown: (details) {
-                      _handleTap(details.localPosition, cellSize);
-                    },
-                    child: CustomPaint(
-                      size: Size(boardWidth, boardHeight),
-                      painter: ArrowPainter(
-                        arrows: widget.arrows,
-                        gridRows: widget.gridRows,
-                        gridCols: widget.gridCols,
-                        cellSize: cellSize,
-                        removeAnimations: _removeAnimations,
-                      ),
+      return Center(
+        child: SizedBox(
+          width: boardWidth,
+          height: boardHeight,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // ── Board (dots + arrows) ──────────────────────────────────
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTapDown: (details) =>
+                      _handleTap(details.localPosition, cellSize),
+                  child: CustomPaint(
+                    size: Size(boardWidth, boardHeight),
+                    painter: ArrowPainter(
+                      arrows: widget.arrows,
+                      gridRows: widget.gridRows,
+                      gridCols: widget.gridCols,
+                      cellSize: cellSize,
+                      removeAnimations: _removeAnimations,
                     ),
                   ),
                 ),
-                if (widget.showTutorial && widget.tutorialMessage != null)
-                  _buildTutorialOverlay(cellSize),
-              ],
-            ),
+              ),
+
+              // ── Tutorial overlay ───────────────────────────────────────
+              if (widget.showTutorial && widget.tutorialMessage != null)
+                _buildTutorialOverlay(cellSize),
+            ],
           ),
-        );
-      },
-    );
+        ),
+      );
+    });
   }
 
+  // ── Tap handling ──────────────────────────────────────────────────────────
+
+  /// Convert tap pixel position → grid cell → find arrow in that cell.
   void _handleTap(Offset tapPosition, double cellSize) {
-    ArrowModel? nearestArrow;
-    double nearestDistance = double.infinity;
+    // Which cell was tapped?
+    final col = (tapPosition.dx / cellSize).floor();
+    final row = (tapPosition.dy / cellSize).floor();
 
-    final hitRadius = cellSize * 0.36;
-
-    for (final arrow in widget.arrows) {
-      if (arrow.state != ArrowState.active &&
-          arrow.state != ArrowState.highlighted) {
-        continue;
-      }
-
-      final distance = _distanceToArrowPath(
-        tapPosition,
-        arrow,
-        cellSize,
-      );
-
-      if (distance <= hitRadius && distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestArrow = arrow;
-      }
+    // Bounds check
+    if (row < 0 || row >= widget.gridRows || col < 0 || col >= widget.gridCols) {
+      return;
     }
 
-    if (nearestArrow != null) {
-      debugPrint('Tapped arrow: ${nearestArrow.id}');
-      widget.onArrowTapped(nearestArrow.id);
+    // Find an active arrow in that cell
+    final arrow = widget.arrows.where((a) {
+      return a.row == row &&
+          a.col == col &&
+          (a.state == ArrowState.active || a.state == ArrowState.highlighted);
+    }).firstOrNull;
+
+    if (arrow != null) {
+      debugPrint('Tapped cell ($row,$col) → arrow ${arrow.id}');
+      widget.onArrowTapped(arrow.id);
     }
   }
 
-  double _distanceToArrowPath(
-    Offset tap,
-    ArrowModel arrow,
-    double cellSize,
-  ) {
-    final points = arrow.pathPoints.map((p) => p.toOffset(cellSize)).toList();
-
-    if (points.length < 2) {
-      return (tap - arrow.getCenter(cellSize)).distance;
-    }
-
-    double minDistance = double.infinity;
-
-    for (int i = 0; i < points.length - 1; i++) {
-      final distance = _distanceToSegment(
-        tap,
-        points[i],
-        points[i + 1],
-      );
-
-      if (distance < minDistance) {
-        minDistance = distance;
-      }
-    }
-
-    return minDistance;
-  }
-
-  double _distanceToSegment(Offset point, Offset start, Offset end) {
-    final dx = end.dx - start.dx;
-    final dy = end.dy - start.dy;
-
-    final lengthSquared = dx * dx + dy * dy;
-
-    if (lengthSquared == 0) {
-      return (point - start).distance;
-    }
-
-    double t = ((point.dx - start.dx) * dx + (point.dy - start.dy) * dy) /
-        lengthSquared;
-
-    t = t.clamp(0.0, 1.0);
-
-    final projection = Offset(
-      start.dx + t * dx,
-      start.dy + t * dy,
-    );
-
-    return (point - projection).distance;
-  }
+  // ── Tutorial overlay ──────────────────────────────────────────────────────
 
   Widget _buildTutorialOverlay(double cellSize) {
     final activeArrows =
         widget.arrows.where((a) => a.state == ArrowState.active).toList();
+    if (activeArrows.isEmpty) return const SizedBox.shrink();
 
-    if (activeArrows.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    ArrowModel targetArrow;
-
-    if (activeArrows.length >= 2) {
-      targetArrow = activeArrows[1];
-    } else {
-      targetArrow = activeArrows.first;
-    }
-
-    final center = targetArrow.getCenter(cellSize);
+    // Point at the first active arrow
+    final targetArrow = activeArrows.first;
+    final cx = targetArrow.col * cellSize + cellSize / 2;
+    final cy = targetArrow.row * cellSize + cellSize / 2;
 
     return Positioned(
-      left: center.dx - 58,
-      top: center.dy + cellSize * 0.45,
+      left: cx - 60,
+      top: cy + cellSize * 0.55,
       child: Column(
         children: [
-          const Icon(
-            Icons.touch_app_rounded,
-            color: Color(0xFF5F6470),
-            size: 42,
-          ),
+          const Icon(Icons.touch_app_rounded, color: Color(0xFF5F6470), size: 38),
           const SizedBox(height: 4),
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 15,
-              vertical: 10,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: const Color(0xFF2D8CEB),
               borderRadius: BorderRadius.circular(8),
