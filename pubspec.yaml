@@ -1,0 +1,37 @@
+name: arrow_maze_puzzle_escape
+description: Arrow Maze - Puzzle Escape. A brain-teasing arrow puzzle game.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # State Management
+  provider: ^6.1.1
+  
+  # Local Storage
+  shared_preferences: ^2.2.2
+  
+  # Google Fonts
+  google_fonts: ^6.1.0
+  
+  # Confetti Effect
+  confetti: ^0.7.0
+  
+  # UUID Generation
+  uuid: ^4.2.2
+  
+  # Intl for date formatting
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
